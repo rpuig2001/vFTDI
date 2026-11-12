@@ -995,18 +995,18 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 			measurement.TurnStatus = "CLEARED";
 			measurement.TurnStatusDetail = "Approach clearance set; turn recommendations are stopped";
 		}
-		else if (Session->ShowTurningPoints && (!hasPrecedingRoute || !hasSucceedingRoute)) {
+		else if (!hasPrecedingRoute || !hasSucceedingRoute) {
 			measurement.PlanningTurnTiming.Reset();
 			measurement.TurnStatus = "NO RWY";
 			measurement.TurnStatusDetail = "Both aircraft need an assigned arrival runway available in the active sector file";
 		}
-		else if (Session->ShowTurningPoints && succeedingPassedJoin) {
+		else if (succeedingPassedJoin) {
 			measurement.PlanningTurnTiming.Reset();
 			measurement.TurnStatus = "ON FINAL";
 			measurement.TurnStatusDetail = "Aircraft is already established on final inside its localizer join point";
 		}
-		else if (PredictionStability::CanRecommendTurn(Session->ShowTurningPoints,
-			measurement.ClearedForApproach, succeedingPassedJoin) && precedingPlan.IsValid() && succeedingPlan.IsValid()) {
+		else if (PredictionStability::CanRecommendTurn(measurement.ClearedForApproach,
+			succeedingPassedJoin) && precedingPlan.IsValid() && succeedingPlan.IsValid()) {
 			const double outboundHeading = TrueBearingDegrees(succeedingRunwayThreshold, succeedingJoinPoint);
 			const double localizerPointNm = succeedingRunwayThreshold.DistanceTo(succeedingJoinPoint);
 			const double precedingFinalHeading = std::fmod(
@@ -1082,24 +1082,26 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 				}
 				else {
 					const double turnDistanceNm = turnSeconds * followerSpeed.CurrentKts / 3600.0;
-					const CPosition turnPosition = SeparationMath::Extrapolate(succeedingPosition,
-						succeedingMotion.TrackDegrees, turnRoute.StartDistanceNm * 1852.0);
-					const POINT turnPixel = ConvertCoordFromPositionToPixel(turnPosition);
-					const int turnState = dc.SaveDC();
-					const COLORREF turnColor = ConfiguredColor(reusedSolution ? "COLOR_TURN_PASSED" : "COLOR_TURN_POINT");
-					CPen turnPen(reusedSolution ? PS_DOT : PS_DASH, 1, turnColor);
-					dc.SelectObject(&turnPen);
-					dc.MoveTo(ConvertCoordFromPositionToPixel(succeedingPosition));
-					dc.LineTo(turnPixel);
-					if (showLocalizerRoute || previewSucceedingRoute) {
-						DrawAircraftLocalizerRoute(this, dc, succeedingPosition, succeedingMotion.TrackDegrees,
-							succeedingJoinPoint, succeedingRunwayThreshold, false, &turnRoute);
+					if (Session->ShowTurningPoints) {
+						const CPosition turnPosition = SeparationMath::Extrapolate(succeedingPosition,
+							succeedingMotion.TrackDegrees, turnRoute.StartDistanceNm * 1852.0);
+						const POINT turnPixel = ConvertCoordFromPositionToPixel(turnPosition);
+						const int turnState = dc.SaveDC();
+						const COLORREF turnColor = ConfiguredColor(reusedSolution ? "COLOR_TURN_PASSED" : "COLOR_TURN_POINT");
+						CPen turnPen(reusedSolution ? PS_DOT : PS_DASH, 1, turnColor);
+						dc.SelectObject(&turnPen);
+						dc.MoveTo(ConvertCoordFromPositionToPixel(succeedingPosition));
+						dc.LineTo(turnPixel);
+						if (showLocalizerRoute || previewSucceedingRoute) {
+							DrawAircraftLocalizerRoute(this, dc, succeedingPosition, succeedingMotion.TrackDegrees,
+								succeedingJoinPoint, succeedingRunwayThreshold, false, &turnRoute);
+						}
+						CPen circlePen(PS_SOLID, 2, turnColor);
+						dc.SelectObject(&circlePen);
+						dc.SelectStockObject(NULL_BRUSH);
+						dc.Ellipse(turnPixel.x - 6, turnPixel.y - 6, turnPixel.x + 7, turnPixel.y + 7);
+						dc.RestoreDC(turnState);
 					}
-					CPen circlePen(PS_SOLID, 2, turnColor);
-					dc.SelectObject(&circlePen);
-					dc.SelectStockObject(NULL_BRUSH);
-					dc.Ellipse(turnPixel.x - 6, turnPixel.y - 6, turnPixel.x + 7, turnPixel.y + 7);
-					dc.RestoreDC(turnState);
 					const char* turnCommand = turnRoute.TurnAngleRadians < -1.0e-6 ? "turn LEFT"
 						: (turnRoute.TurnAngleRadians > 1.0e-6 ? "turn RIGHT" : "proceed");
 					char tooltip[240] = {};
@@ -1115,7 +1117,7 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 							"%s: UPDATING; previous turn point retained briefly while prediction recalculates; not a new turn instruction",
 							measurement.SucceedingCallsign.c_str());
 					char status[32] = {};
-					std::snprintf(status, sizeof(status), largerGapSolution ? "IN %.0fs+" : "IN %.0fs", turnSeconds);
+					std::snprintf(status, sizeof(status), largerGapSolution ? "TURN %.0fs+" : "TURN %.0fs", turnSeconds);
 					const auto cue = PredictionStability::EarliestTurnCue(turnSeconds);
 					measurement.TurnStatus = reusedSolution ? "UPDATING" :
 						(cue == PredictionStability::TurnCue::Soon

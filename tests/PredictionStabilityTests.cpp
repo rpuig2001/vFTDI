@@ -18,11 +18,10 @@ int main()
 	Check(EarliestTurnCue(15.0) == TurnCue::Soon, "fifteen-second cue warns without saying turn is permitted now");
 	Check(EarliestTurnCue(1.0) == TurnCue::Soon, "no TURN NOW before the earliest permitted point");
 	Check(EarliestTurnCue(0.0) == TurnCue::Now, "TURN NOW only at the earliest permitted point");
-	Check(CanRecommendTurn(true, false, false), "uncleared follower may receive recommendations");
-	Check(!CanRecommendTurn(true, true, false), "approach clearance immediately suppresses recommendations");
-	Check(!CanRecommendTurn(true, true, true), "clearance suppression applies on final too");
-	Check(!CanRecommendTurn(false, false, false), "disabled overlay stays disabled");
-	Check(!CanRecommendTurn(true, false, true), "established aircraft needs no recommendation");
+	Check(CanRecommendTurn(false, false), "uncleared follower may receive predictions regardless of overlay visibility");
+	Check(!CanRecommendTurn(true, false), "approach clearance immediately suppresses recommendations");
+	Check(!CanRecommendTurn(true, true), "clearance suppression applies on final too");
+	Check(!CanRecommendTurn(false, true), "established aircraft needs no recommendation");
 	TurningPointMath::TurnRoute directRoute;
 	Check(TurningPointMath::BuildDirectRoute(12.0, 5.0, 0.0, 0.0, 14.0, directRoute),
 		"straight route is independent of banked-turn feasibility");
@@ -84,7 +83,7 @@ int main()
 	Check(!transientFailure.CanReuse(108.01, "same pair", 1.0, true), "expired solution is hidden");
 	Check(!transientFailure.CanReuse(101.0, "same pair", 5.01, true), "materially wrong prior timing is hidden");
 	Check(!transientFailure.CanReuse(101.0, "new runway", 1.0, true), "runway or sequence context change invalidates prior solution");
-	Check(!transientFailure.CanReuse(101.0, "same pair", 1.0, CanRecommendTurn(true, true, false)),
+	Check(!transientFailure.CanReuse(101.0, "same pair", 1.0, CanRecommendTurn(true, false)),
 		"clearance cannot retain a previous turn circle");
 	Check(!transientFailure.CanReuse(101.0, "same pair", 1.0, false), "missing data or infeasible geometry cannot be retained");
 	transientFailure.Reset();

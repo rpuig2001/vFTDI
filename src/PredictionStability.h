@@ -17,9 +17,9 @@ namespace PredictionStability {
 			std::cos(degrees * 3.14159265358979323846 / 180.0)) * 180.0 / 3.14159265358979323846;
 	}
 
-	inline bool CanRecommendTurn(bool enabled, bool clearedForApproach, bool establishedOnFinal)
+	inline bool CanRecommendTurn(bool clearedForApproach, bool establishedOnFinal)
 	{
-		return enabled && !clearedForApproach && !establishedOnFinal;
+		return !clearedForApproach && !establishedOnFinal;
 	}
 
 	struct Motion {

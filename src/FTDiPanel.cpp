@@ -83,7 +83,7 @@ void DrawStatusBadge(CDC& dc, const CRect& area, const std::string& status)
 	const bool turnNow = status.compare(0, 8, "TURN NOW") == 0;
 	const bool turnSoon = status.compare(0, 9, "TURN SOON") == 0;
 	const bool updating = status == "UPDATING";
-	const bool countdown = status.compare(0, 3, "IN ") == 0;
+	const bool countdown = status.compare(0, 5, "TURN ") == 0 && !turnNow && !turnSoon;
 	const bool noDelay = status == "NO DELAY";
 	const bool cleared = status == "CLEARED";
 	const bool leader = status == "LEADER";
@@ -220,7 +220,7 @@ void DrawSequenceRow(CRadarScreen* screen, CDC& dc, const CRect& row,
 		? "Set final approach speed override in knots"
 		: "Final approach speed override: " + std::to_string(speedOverride->second) + " kt";
 	screen->AddScreenObject(SCREEN_PANEL_SPEED, callsign.c_str(), speedButton, false, speedTooltip.c_str());
-	if (session.ShowTurningPoints || (measurement != nullptr && !measurement->HasCurrentSpacing)) {
+	{
 		const std::string status = index == 0 ? "LEADER"
 			: (measurement == nullptr || measurement->TurnStatus.empty() ? "NO PAIR" : measurement->TurnStatus);
 		const std::string detail = index == 0 ? "Turn recommendations are calculated for followers, not the sequence leader"
@@ -229,12 +229,9 @@ void DrawSequenceRow(CRadarScreen* screen, CDC& dc, const CRect& row,
 		const CRect statusArea(row.left + 7, row.top + 21, controlsLeft - 3, row.top + 36);
 		const int statusState = dc.SaveDC();
 		dc.IntersectClipRect(statusArea);
-		const bool turnNow = status.compare(0, 8, "TURN NOW") == 0;
-		if (!turnNow)
-			DrawStatusBadge(dc, statusArea, status);
+		DrawStatusBadge(dc, statusArea, status);
 		dc.RestoreDC(statusState);
-		if (!turnNow)
-			screen->AddScreenObject(SCREEN_TURN_STATUS, callsign.c_str(), statusArea, false, detail.c_str());
+		screen->AddScreenObject(SCREEN_TURN_STATUS, callsign.c_str(), statusArea, false, detail.c_str());
 	}
 	if (measurement != nullptr && !measurement->ParallelIndependent) {
 		const CRect gapButton(row.right - 40, row.top + 21, row.right - 2, row.top + 36);
