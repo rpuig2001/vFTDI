@@ -47,7 +47,72 @@ std::string RunwayPairKey(std::string airport, std::string firstRunway, std::str
 bool IsProfileName(const std::string& value)
 {
 	return !value.empty() && value.size() <= 3 && std::all_of(value.begin(), value.end(),
-		[](unsigned char character) { return std::isalpha(character) != 0; });
+		[](unsigned char character) { return std::isalnum(character) != 0; });
+}
+
+std::string Trim(std::string value)
+{
+	const size_t first = value.find_first_not_of(" \t\r\n");
+	if (first == std::string::npos)
+		return {};
+	const size_t last = value.find_last_not_of(" \t\r\n");
+	return value.substr(first, last - first + 1);
+}
+
+std::vector<std::string> Split(const std::string& value, char delimiter)
+{
+	std::vector<std::string> parts;
+	std::istringstream parser(value);
+	std::string part;
+	while (std::getline(parser, part, delimiter))
+		parts.push_back(Trim(part));
+	return parts;
+}
+
+std::string IniDirective(const std::string& section, const std::string& key)
+{
+	const auto sectionParts = Split(section, '.');
+	const std::string normalizedKey = UppercaseIdentifier(key);
+	if (section == "GENERAL") {
+		if (normalizedKey == "MINIMUMALTITUDE") return "MINALTITUDE";
+		if (normalizedKey == "DEFAULTROWS") return "DEFAULTROWS";
+		if (normalizedKey == "FTDMARKERSIZE") return "FTDMARKERSIZE";
+		if (normalizedKey == "ITDMARKERSIZE") return "ITDMARKERSIZE";
+		if (normalizedKey == "SHOWLOCALIZERROUTE") return "SHOWLOCALIZERROUTE";
+		if (normalizedKey == "SEQUENCEMODE") return "SEQUENCEMODE";
+	}
+	if (section == "PROFILES" && normalizedKey == "DEFAULT")
+		return "DEFAULTPROFILE";
+	if (section == "AIRPORTS" && normalizedKey == "CODES")
+		return "AIRPORTS";
+	if (section == "SEPARATION") {
+		if (normalizedKey == "MINIMUMDISTANCENM") return "MINDIST";
+		if (normalizedKey == "MINIMUMPARALLELDEPENDENTDISTANCENM") return "MINPARALLELDEPENDENTDISTANCE";
+		if (normalizedKey == "FINALBUFFERNM") return "FINALBUFFER";
+	}
+	if (section == "WAKE")
+		return "WTC_" + normalizedKey;
+	if (section == "SPEED") {
+		if (normalizedKey == "LONGAPPROACHNM" || normalizedKey == "LONGAPPROACHSPEEDKTS" ||
+			normalizedKey == "SPEEDUNTILREDUCTIONKTS" || normalizedKey == "SPEEDREDUCTIONNM" ||
+			normalizedKey.compare(0, 17, "FINALAPPROACHSPEED_") == 0)
+			return normalizedKey;
+	}
+	if (section == "COLORS")
+		return "COLOR_" + normalizedKey;
+	if (sectionParts.size() == 3 && sectionParts[0] == "RUNWAYS") {
+		if (normalizedKey == "LOCALIZERPOINTNM")
+			return "LOCALIZERPOINT_" + sectionParts[1] + "_" + sectionParts[2];
+		if (normalizedKey == "LOCALIZERCOURSEDEGREES")
+			return "LOCALIZERCOURSE_" + sectionParts[1] + "_" + sectionParts[2];
+	}
+	if (sectionParts.size() == 2 && sectionParts[0] == "PROFILE") {
+		const auto pairParts = Split(key, '.');
+		if (pairParts.size() == 3)
+			return "RUNWAYPAIR " + sectionParts[1] + " " + pairParts[0] + " " +
+				pairParts[1] + " " + pairParts[2];
+	}
+	return {};
 }
 }
 
@@ -60,12 +125,34 @@ CCallsignLookup::CCallsignLookup(const std::string& fileName)
 	if (!file.is_open())
 		return;
 
-	std::string requestedDefaultProfile;
+	std::vector<std::string> directives;
+	std::string section;
 	std::string line;
 	while (std::getline(file, line)) {
-		if (line.empty() || line[0] != '#')
+		line = Trim(line);
+		if (line.empty() || line[0] == ';' || line[0] == '#')
 			continue;
+		if (line.front() == '[' && line.back() == ']') {
+			section = UppercaseIdentifier(Trim(line.substr(1, line.size() - 2)));
+			const auto sectionParts = Split(section, '.');
+			if (sectionParts.size() == 2 && sectionParts[0] == "PROFILE")
+				directives.push_back("#PROFILE " + sectionParts[1]);
+			continue;
+		}
+		const size_t separator = line.find('=');
+		if (separator == std::string::npos)
+			continue;
+		const std::string key = Trim(line.substr(0, separator));
+		std::string value = Trim(line.substr(separator + 1));
+		const std::string directive = IniDirective(section, key);
+		if (directive.empty())
+			continue;
+		std::replace(value.begin(), value.end(), ',', ' ');
+		directives.push_back("#" + directive + " " + value);
+	}
 
+	std::string requestedDefaultProfile;
+	for (const std::string& line : directives) {
 		std::istringstream parser(line.substr(1));
 		std::string key;
 		if (!(parser >> key))

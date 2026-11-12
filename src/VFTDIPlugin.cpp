@@ -41,7 +41,7 @@ VFTDIPlugin::VFTDIPlugin()
     const size_t directoryEnd = configPath.find_last_of("\\/");
     if (directoryEnd != std::string::npos)
         configPath.resize(directoryEnd + 1);
-    CCallsignLookup::Lookup = new CCallsignLookup(configPath + "config.txt");
+    CCallsignLookup::Lookup = new CCallsignLookup(configPath + "config.ini");
     Session->ActiveProfile = CCallsignLookup::Lookup->getDefaultProfile();
     Session->ManagerVisibleRows = CCallsignLookup::Lookup->getDefaultVisibleRows();
         WeatherService.reset(new AirportWeatherService(CCallsignLookup::Lookup->getAirportCodes()));

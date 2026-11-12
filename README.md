@@ -17,7 +17,7 @@ An independent VATSIM EuroScope plugin that displays and lets controllers adjust
 
 ## Controls
 
-The radar manager is 228 px wide when expanded and uses 38 px aircraft rows. Up to five named runway-pair profiles appear as buttons below the toolbar; profile names are 1-3 letters. Turn status appears in compact color-coded badges: yellow `TURN SOON`, cyan countdowns, amber `UPDATING`, and subdued `NO DELAY`, cleared/leader, or unavailable states. When no delay is needed, the blue turn point is hidden. Row-count `+`/`-` controls are in the title bar; the duplicate ARRIVALS header has been removed. Available screen height and the configured startup row count still govern scrolling.
+The radar manager is 228 px wide when expanded and uses 38 px aircraft rows. Up to five named runway-pair profiles appear as buttons below the toolbar; profile names are 1-3 alphanumeric characters. Turn status appears in compact color-coded badges: yellow `TURN SOON`, cyan countdowns, amber `UPDATING`, and subdued `NO DELAY`, cleared/leader, or unavailable states. When no delay is needed, the blue turn point is hidden. Row-count `+`/`-` controls are in the title bar; the duplicate ARRIVALS header has been removed. Available screen height and the configured startup row count still govern scrolling.
 
 - Drag the sequence manager's title strip to move it; it stays inside the radar viewport. Click `+` to expand it or `-` to collapse it. In the expanded window, `+`/`-` adjust its height and the right-side scrollbar navigates longer sequences.
 - Use **+ ACFT** or `Ctrl+W` first; the control changes to **PICK ACFT** while waiting. Then click an aircraft to append it. A click made before arming does not add the aircraft. Left-click a sequence row to set EuroScope ASEL and highlight the row yellow; this does not highlight targets. Right-click to focus the aircraft's FTD/ITD/GAP targets when it is a succeeding aircraft, and turn its callsign brown; right-click the same row again to clear that focus. The first row has no target set. With `RTE OFF`, middle-click a row to show or hide its route preview. To reorder, click **MOVE** on the source row, click the destination row, then choose **Above** or **Below**. **x** removes an aircraft and recalculates adjacent targets. `RTE ON/OFF` controls route visibility.
@@ -70,32 +70,39 @@ The standalone geometry/timing regression checks are in `tests/TurningPointMathT
 
 `DEFAULTROWS` sets the initial maximum number of visible aircraft rows in both vFTDI views. For example, `#DEFAULTROWS 999` allows up to 999 rows to be visible when space permits. Values below 1 are clamped to 1; omitting the setting or supplying invalid text keeps the previous default of three. The panel's `+` and `-` controls still adjust the row count during the session. Available screen height limits the number drawn at once, and scrolling remains available for additional aircraft; this does not limit the arrival sequence length. Reload the plugin to apply a changed startup default.
 
-The plugin reads `config.txt` from the directory containing the DLL. The repository and `Release` folders include example configurations. Key settings include `MINDIST`, `MINPARALLELDEPENDENTDISTANCE`, `FINALBUFFER`, `WTC_<leader>_<follower>`, `LONGAPPROACHNM`, `LONGAPPROACHSPEEDKTS`, `SPEEDUNTILREDUCTIONKTS`, `SPEEDREDUCTIONNM`, runway-specific `LOCALIZERCOURSE_<ICAO>_<RUNWAY>` and `LOCALIZERPOINT_<ICAO>_<RUNWAY>`, and marker color RGB values. `LONGAPPROACHNM` defines the remaining-route distance where the model transitions from current groundspeed to `LONGAPPROACHSPEEDKTS` for its approach estimate; `0` disables this phase. The speed is accounted for in predicted ITD calculations before an aircraft reaches that boundary. After joining, the existing `SPEEDUNTILREDUCTIONKTS` to `SPEEDREDUCTIONNM` and final-approach-speed phases are unchanged. `COLOR_FTD_TARGET` controls the red FTD arc and `COLOR_ITD_TARGET` the blue ITD arc.
+The plugin reads `config.ini` from the directory containing the DLL. The sample configuration at `src/config.ini` is copied next to the DLL during a build. Settings are grouped into `[general]`, `[runways.<ICAO>.<RUNWAY>]`, `[separation]`, `[wake]`, `[profiles]`, `[profile.<NAME>]`, `[speed]`, and `[colors]` sections. Distances use nautical miles, speeds use knots, courses use degrees, and colors are RGB triples. `longApproachNm` defines the remaining-route distance where the model transitions from current groundspeed to `longApproachSpeedKts` for its approach estimate; `0` disables this phase. The speed is accounted for in predicted ITD calculations before an aircraft reaches that boundary. After joining, the existing speed-reduction and final-approach-speed phases are unchanged. `FTD_TARGET` controls the red FTD arc and `ITD_TARGET` the blue ITD arc.
 
 ### Sequence Mode And Runway Rules
 
-`PROFILE` declares up to five selectable runway-pair profiles. Each name must contain 1-3 letters. `DEFAULTPROFILE` selects the profile used on plugin load. `RUNWAYPAIR` entries begin with the profile name, then airport, two runways, and a mode (`ALTERNATING`, `DEPENDANT`, or `INDEPENDENT`). Rules are symmetric. Unlisted pairs default to Alternating. `DEPENDENT` is accepted as an alternative spelling to `DEPENDANT`. Independent pairs receive no inter-runway FTD/ITD/GAP target; their succeeding aircraft's expected route position still anchors the next pair. Selecting a profile in either vFTDI window applies it to the whole sequence immediately.
+Each `[profile.<NAME>]` section declares a selectable runway-pair profile; up to five names of one to three letters or digits are supported. `[profiles] default` selects the profile used on plugin load. Within a profile section, each pair key is `<ICAO>.<RUNWAY>.<RUNWAY>` and its value is `ALTERNATING`, `DEPENDANT`, or `INDEPENDENT`. Rules are symmetric. Unlisted pairs default to Alternating. `DEPENDENT` is accepted as an alternative spelling to `DEPENDANT`. Independent pairs receive no inter-runway FTD/ITD/GAP target; their succeeding aircraft's expected route position still anchors the next pair. Selecting a profile in either vFTDI window applies it to the whole sequence immediately.
 
-```text
-#PROFILE ALT
-#PROFILE DEP
-#PROFILE IND
-#DEFAULTPROFILE DEP
-#RUNWAYPAIR ALT EDDF 25L 25C ALTERNATING
-#RUNWAYPAIR ALT EDDF 25L 25R ALTERNATING
-#RUNWAYPAIR DEP EDDF 25L 25C ALTERNATING
-#RUNWAYPAIR DEP EDDF 25L 25R DEPENDANT
-#RUNWAYPAIR DEP EDDF 25C 25R DEPENDANT
-#RUNWAYPAIR IND EDDF 25L 25C ALTERNATING
-#RUNWAYPAIR IND EDDF 25L 25R INDEPENDENT
-#RUNWAYPAIR IND EDDF 25C 25R DEPENDANT
+```ini
+[profiles]
+default = DEP
+
+[profile.ALT]
+EDDF.25L.25C = ALTERNATING
+EDDF.25L.25R = ALTERNATING
+
+[profile.DEP]
+EDDF.25L.25C = ALTERNATING
+EDDF.25L.25R = DEPENDANT
+EDDF.25C.25R = DEPENDANT
+
+[profile.IND]
+EDDF.25L.25C = ALTERNATING
+EDDF.25L.25R = INDEPENDENT
+EDDF.25C.25R = DEPENDANT
+
+[profile.IN2]
+EDDF.25L.25C = ALTERNATING
 ```
 
 In this example, `ALT` uses Alternating spacing, `DEP` uses reduced Dependant spacing for its listed pairs, and `IND` makes 25L/25R Independent while 25C/25L remains Alternating. Airport and runway values are case-insensitive; single-digit runway numbers are normalized with a leading zero. The last valid rule for a pair within a profile wins.
 
 Same-runway pairs, pairs at different airports, missing or invalid assignments, and unlisted pairs always remain Alternating. Alternating mode overrides all reduced-spacing rules. Rules are reevaluated on radar refresh, including after runway changes or sequence reordering. No manual S/D callsign overrides remain.
 
-Alternating FTD is the greater of `MINDIST` and the configured wake separation, plus `FINALBUFFER`. A configured Dependant pair instead uses `MINPARALLELDEPENDENTDISTANCE` plus `FINALBUFFER`. A larger pairwise GAP still takes precedence, and compression is then added for ITD as before. These configurable values are for simulation and must not be interpreted as locally approved operational minima. Legacy `SEQUENCEMODE` and four-field `RUNWAYPAIR` entries are still accepted when no named profiles are declared.
+Alternating FTD is the greater of `minimumDistanceNm` and the configured wake separation, plus `finalBufferNm`. A configured Dependant pair instead uses `minimumParallelDependentDistanceNm` plus `finalBufferNm`. A larger pairwise GAP still takes precedence, and compression is then added for ITD as before. These configurable values are for simulation and must not be interpreted as locally approved operational minima.
 
 The native parser/rule regression checks are in `tests/RunwayModeTests.cpp`.
 
@@ -104,33 +111,34 @@ The native parser/rule regression checks are in `tests/RunwayModeTests.cpp`.
 FTD defaults slightly larger than ITD, following the relative sizing shown in the EUROCONTROL guideline. Set the symbol span across the approach path in screen pixels:
 
 ```text
-#FTDMARKERSIZE 26
-#ITDMARKERSIZE 22
+[general]
+ftdMarkerSize = 26
+itdMarkerSize = 22
 ```
 
 Arc depth and GAP bracket dimensions scale with the span; pen thickness remains unchanged. Alert-label placement follows the configured dimensions. ITD spans are limited to 6-64 px and FTD to 8-96 px. FTD is automatically raised to at least ITD + 2 px if necessary, so the two remain distinguishable. Missing or invalid-text settings use the defaults. Reload the plugin after editing. These sizes affect only the symbols, not separation distances or their 0.1 NM placement resolution. The guideline does not prescribe these specific pixel values.
 
 ### Colors
 
-All colors drawn by vFTDI are configurable in the DLL's `config.txt` using `#COLOR_NAME R G B`, with integer channels from 0 to 255. The Release configuration lists every supported color while retaining the existing appearance. Reload the plugin or restart EuroScope after changing the file. Missing entries use built-in defaults; malformed or out-of-range entries are ignored. If route colors are omitted, they inherit the corresponding configured target colors.
+All colors drawn by vFTDI are configurable in the DLL's `config.ini` under `[colors]`, using comma-separated RGB triples with integer channels from 0 to 255. The sample configuration lists every supported color while retaining the existing appearance. Reload the plugin or restart EuroScope after changing the file. Missing entries use built-in defaults; malformed or out-of-range entries are ignored. If route colors are omitted, they inherit the corresponding configured target colors.
 
 | Setting | Controls |
 | --- | --- |
-| `COLOR_FTD_TARGET` / `COLOR_ITD_TARGET` | Final and initial target arcs |
-| `COLOR_FTD_ROUTE` / `COLOR_ITD_ROUTE` | Leader/FTD and ITD dashed route overlays |
-| `COLOR_GAP_TARGET` | Governing GAP bracket |
-| `COLOR_BREACH_ALERT` | Separation breach alert text |
-| `COLOR_SELECTION_TEXT` | Aircraft-selection prompt |
-| `COLOR_TURN_POINT` / `COLOR_TURN_PASSED` | Earliest-point and provisional UPDATING turn circles and their connector lines |
-| `COLOR_TOOLTIP_BACKGROUND` / `COLOR_TOOLTIP_TEXT` | Custom radar target hover-label background and text |
-| `COLOR_PANEL_BACKGROUND` / `COLOR_PANEL_SURFACE` | Window background and header/button surfaces |
-| `COLOR_PANEL_ROW` / `COLOR_PANEL_DIVIDER` | Sequence row backgrounds, borders, and scrollbar tracks |
-| `COLOR_PANEL_TEXT` / `COLOR_PANEL_HEADER_TEXT` | Normal and header/button text |
-| `COLOR_PANEL_MUTED_TEXT` | Secondary and disabled text |
-| `COLOR_PANEL_ACCENT` / `COLOR_PANEL_WARNING` | Selection accents, active GAP/dependent highlights, and scrollbar thumbs |
-| `COLOR_PANEL_DISABLED` / `COLOR_PANEL_CONTROL` | Disabled button and title/resize button backgrounds |
-| `COLOR_PANEL_REMOVE_BACKGROUND` / `COLOR_PANEL_REMOVE_TEXT` | Remove button background and text |
-| `COLOR_PANEL_STATUS_WARNING` | Passed-turn and unavailable-prediction status text |
+| `FTD_TARGET` / `ITD_TARGET` | Final and initial target arcs |
+| `FTD_ROUTE` / `ITD_ROUTE` | Leader/FTD and ITD dashed route overlays |
+| `GAP_TARGET` | Governing GAP bracket |
+| `BREACH_ALERT` | Separation breach alert text |
+| `SELECTION_TEXT` | Aircraft-selection prompt |
+| `TURN_POINT` / `TURN_PASSED` | Earliest-point and provisional UPDATING turn circles and their connector lines |
+| `TOOLTIP_BACKGROUND` / `TOOLTIP_TEXT` | Custom radar target hover-label background and text |
+| `PANEL_BACKGROUND` / `PANEL_SURFACE` | Window background and header/button surfaces |
+| `PANEL_ROW` / `PANEL_DIVIDER` | Sequence row backgrounds, borders, and scrollbar tracks |
+| `PANEL_TEXT` / `PANEL_HEADER_TEXT` | Normal and header/button text |
+| `PANEL_MUTED_TEXT` | Secondary and disabled text |
+| `PANEL_ACCENT` / `PANEL_WARNING` | Selection accents, active GAP/dependent highlights, and scrollbar thumbs |
+| `PANEL_DISABLED` / `PANEL_CONTROL` | Disabled button and title/resize button backgrounds |
+| `PANEL_REMOVE_BACKGROUND` / `PANEL_REMOVE_TEXT` | Remove button background and text |
+| `PANEL_STATUS_WARNING` | Passed-turn and unavailable-prediction status text |
 
 EuroScope-owned popup menus and native screen-object tooltips remain controlled by EuroScope and Windows, not by these plugin settings.
 

@@ -19,17 +19,14 @@ int main(int argumentCount, char** arguments)
 	const char* path = arguments[1];
 	{
 		std::ofstream config(path);
-		config << "#SEQUENCEMODE DEPENDANT\n";
-		config << "#RUNWAYPAIR EDDF 25L 25C ALTERNATING\n";
-		config << "#RUNWAYPAIR EDDF 25L 25R DEPENDANT\n";
-		config << "#RUNWAYPAIR EDDF 25C 25R DEPENDENT\n";
-		config << "#RUNWAYPAIR eddf 7l 7r dependant\n";
-		config << "#RUNWAYPAIR EDDF 08L 08R INDEPENDENT\n";
-		config << "#RUNWAYPAIR EDDF 25R 25L UNKNOWN\n";
-		config << "#RUNWAYPAIR EDDF 25L 25L DEPENDANT\n";
-		config << "#RUNWAYPAIR EDDF 00L 25R DEPENDANT\n";
-		config << "#RUNWAYPAIR EDDF 37L 25R DEPENDANT\n";
-		config << "#RUNWAYPAIR EDDF 25L\n";
+		config << "[general]\nsequenceMode = DEPENDANT\n";
+		config << "[profile.ALT]\nEDDF.25L.25C = ALTERNATING\nEDDF.25L.25R = ALTERNATING\n";
+		config << "[profile.DEP]\n";
+		config << "EDDF.25L.25C = ALTERNATING\nEDDF.25L.25R = DEPENDANT\n";
+		config << "EDDF.25C.25R = DEPENDENT\nEDDF.7l.7r = dependant\n";
+		config << "EDDF.08L.08R = INDEPENDENT\nEDDF.25R.25L = UNKNOWN\n";
+		config << "EDDF.25L.25L = DEPENDANT\nEDDF.00L.25R = DEPENDANT\n";
+		config << "EDDF.37L.25R = DEPENDANT\nEDDF.25L = DEPENDANT\n";
 	}
 	CCallsignLookup config(path);
 	Check(config.getDependentMode(), "configured default mode");
@@ -58,8 +55,8 @@ int main(int argumentCount, char** arguments)
 	Check(!config.usesDependentSpacing(true, "EDDF", "25L", "EDDF", "25C"), "runway reassignment changes pair mode");
 	{
 		std::ofstream output(path);
-		output << "#SEQUENCEMODE ALTERNATING\n#SEQUENCEMODE UNKNOWN\n";
-		output << "#RUNWAYPAIR EDDF 25L 25R DEPENDANT\n#RUNWAYPAIR EDDF 25R 25L alternating\n";
+		output << "[general]\nsequenceMode = ALTERNATING\nsequenceMode = UNKNOWN\n";
+		output << "[profile.DEP]\nEDDF.25L.25R = DEPENDANT\nEDDF.25R.25L = alternating\n";
 	}
 	CCallsignLookup overridden(path);
 	Check(!overridden.getDependentMode(), "Alternating configuration and invalid mode fallback");
@@ -72,14 +69,14 @@ int main(int argumentCount, char** arguments)
 	Check(!defaults.usesDependentSpacing(true, "EDDF", "25L", "EDDF", "25R"), "no rules means Alternating");
 	{
 		std::ofstream output(path);
-		output << "#PROFILE ALT\n#PROFILE DEP\n#PROFILE IND\n#DEFAULTPROFILE DEP\n";
-		output << "#RUNWAYPAIR ALT EDDF 25L 25R ALTERNATING\n";
-		output << "#RUNWAYPAIR DEP EDDF 25L 25R DEPENDANT\n";
-		output << "#RUNWAYPAIR IND EDDF 25L 25R INDEPENDENT\n";
-		output << "#RUNWAYPAIR IND EDDF 25L 25C ALTERNATING\n";
+		output << "[profiles]\ndefault = DEP\n";
+		output << "[profile.ALT]\nEDDF.25L.25R = ALTERNATING\n";
+		output << "[profile.DEP]\nEDDF.25L.25R = DEPENDANT\n";
+		output << "[profile.IND]\nEDDF.25L.25R = INDEPENDENT\nEDDF.25L.25C = ALTERNATING\n";
+		output << "[profile.IN2]\nEDDF.25L.25C = ALTERNATING\n";
 	}
 	CCallsignLookup profiles(path);
-	Check(profiles.getProfileNames() == std::vector<std::string>({ "ALT", "DEP", "IND" }),
+	Check(profiles.getProfileNames() == std::vector<std::string>({ "ALT", "DEP", "IND", "IN2" }),
 		"named profile list");
 	Check(profiles.getDefaultProfile() == "DEP", "default named profile");
 	Check(profiles.getRunwayPairMode("ALT", "EDDF", "25L", "EDDF", "25R") ==
@@ -90,18 +87,21 @@ int main(int argumentCount, char** arguments)
 		CCallsignLookup::RunwayPairMode::Independent, "IND profile runway mode");
 	Check(profiles.getRunwayPairMode("IND", "EDDF", "25L", "EDDF", "25C") ==
 		CCallsignLookup::RunwayPairMode::Alternating, "profile keeps 25L/25C Alternating");
+	Check(profiles.getRunwayPairMode("IN2", "EDDF", "25L", "EDDF", "25C") ==
+		CCallsignLookup::RunwayPairMode::Alternating, "numeric profile name runway mode");
 	{
 		std::ofstream output(path);
-		output << "#PROFILE A\n#PROFILE BB\n#PROFILE CCC\n#PROFILE DDDD\n#PROFILE E\n#PROFILE F\n";
-		output << "#DEFAULTPROFILE F\n";
+		output << "[profiles]\ndefault = F\n";
+		output << "[profile.A]\n[profile.BB]\n[profile.CCC]\n[profile.DDDD]\n";
+		output << "[profile.E]\n[profile.F]\n";
 	}
 	CCallsignLookup boundedProfiles(path);
 	Check(boundedProfiles.getProfileNames() == std::vector<std::string>({ "A", "BB", "CCC", "E", "F" }),
-		"at most five profiles with one-to-three-letter names");
+		"at most five profiles with one-to-three-character alphanumeric names");
 	Check(boundedProfiles.getDefaultProfile() == "F", "configured profile default");
 	if (argumentCount == 3) {
 		CCallsignLookup release(arguments[2]);
-		Check(release.getProfileNames() == std::vector<std::string>({ "ALT", "DEP", "IND" }), "Release profiles");
+		Check(release.getProfileNames() == std::vector<std::string>({ "ALT", "DEP", "IND", "IN2" }), "INI profiles");
 		Check(release.getDefaultProfile() == "DEP", "Release defaults to DEP profile");
 		Check(release.getRunwayPairMode("ALT", "EDDF", "25L", "EDDF", "25R") ==
 			CCallsignLookup::RunwayPairMode::Alternating, "Release ALT profile");
@@ -114,8 +114,11 @@ int main(int argumentCount, char** arguments)
 		Check(release.getRunwayPairMode("IND", "EDDF", "25L", "EDDF", "25C") ==
 			CCallsignLookup::RunwayPairMode::Alternating, "Release IND profile keeps 25L/25C Alternating");
 		Check(release.getRunwayPairMode("IND", "EDDF", "25C", "EDDF", "25R") ==
-			CCallsignLookup::RunwayPairMode::Dependant, "Release IND profile keeps 25C/25R Dependant");
+			CCallsignLookup::RunwayPairMode::Independent, "INI IND profile keeps 25C/25R Independent");
 		Check(release.getMinimumParallelDependentDistanceNm() == 1.5, "Release reduced spacing preserved");
+		double course = 0.0;
+		Check(release.getLocalizerCourseDegrees("EDDF", "25L", course) && course == 249.0,
+			"INI runway course");
 	}
 	std::remove(path);
 	std::cout << "All runway-pair parsing, mode switching, normalization, and Alternating fallback checks passed.\n";

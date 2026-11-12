@@ -177,7 +177,7 @@
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="vFTDI.rc" />
-    <None Include="config.txt">
+    <None Include="config.ini">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
