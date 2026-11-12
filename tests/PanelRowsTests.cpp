@@ -1,0 +1,86 @@
+#include "../src/CallsignLookup.h"
+#include "../src/SequenceOrder.h"
+#include <cstdio>
+#include <cstdlib>
+#include <fstream>
+#include <iostream>
+
+void CheckRows(const char* path, const char* text, int expected)
+{
+	{
+		std::ofstream config(path);
+		config << text;
+	}
+	CCallsignLookup config(path);
+	if (config.getDefaultVisibleRows() != expected) {
+		std::cerr << "FAIL: expected " << expected << " rows for " << text << '\n';
+		std::exit(1);
+	}
+}
+
+int main(int argumentCount, char** arguments)
+{
+	if (argumentCount != 2 && argumentCount != 3)
+		return 1;
+	const char* path = arguments[1];
+	CheckRows(path, "", 3);
+	CheckRows(path, "#DEFAULTROWS 6\n", 6);
+	CheckRows(path, "#DEFAULTROWS 1\n", 1);
+	CheckRows(path, "#DEFAULTROWS 12\n", 12);
+	CheckRows(path, "#DEFAULTROWS 0\n", 1);
+	CheckRows(path, "#DEFAULTROWS -5\n", 1);
+	CheckRows(path, "#DEFAULTROWS 100\n", 100);
+	CheckRows(path, "#DEFAULTROWS 999\n", 999);
+	CheckRows(path, "#DEFAULTROWS invalid\n", 3);
+	CheckRows(path, "#DEFAULTROWS 6\n#DEFAULTROWS invalid\n", 6);
+	CheckRows(path, "#DEFAULTROWS 6\n#DEFAULTROWS 8\n", 8);
+	CheckRows(path, "#DEFAULTROWS 999999999999999999999\n", 3);
+	std::vector<std::string> sequence = { "ALPHA", "BRAVO", "CHARLIE", "DELTA" };
+	if (!MoveSequenceAircraft(sequence, "DELTA", "BRAVO") ||
+		sequence != std::vector<std::string>({ "ALPHA", "DELTA", "BRAVO", "CHARLIE" })) {
+		std::cerr << "FAIL: moving an aircraft earlier should place it before the chosen callsign\n";
+		return 1;
+	}
+	if (!MoveSequenceAircraft(sequence, "ALPHA", "CHARLIE") ||
+		sequence != std::vector<std::string>({ "DELTA", "BRAVO", "ALPHA", "CHARLIE" })) {
+		std::cerr << "FAIL: moving an aircraft later should place it before the chosen callsign\n";
+		return 1;
+	}
+	if (!MoveSequenceAircraft(sequence, "BRAVO", "") ||
+		sequence != std::vector<std::string>({ "DELTA", "ALPHA", "CHARLIE", "BRAVO" })) {
+		std::cerr << "FAIL: moving an aircraft to the end should preserve the remaining order\n";
+		return 1;
+	}
+	if (MoveSequenceAircraft(sequence, "BRAVO", "") ||
+		MoveSequenceAircraft(sequence, "MISSING", "ALPHA") ||
+		MoveSequenceAircraft(sequence, "ALPHA", "MISSING") ||
+		sequence != std::vector<std::string>({ "DELTA", "ALPHA", "CHARLIE", "BRAVO" })) {
+		std::cerr << "FAIL: no-op or stale move choices must not change the sequence\n";
+		return 1;
+	}
+	if (!MoveSequenceRelative(sequence, "DELTA", "CHARLIE", true) ||
+		sequence != std::vector<std::string>({ "ALPHA", "CHARLIE", "DELTA", "BRAVO" })) {
+		std::cerr << "FAIL: moving below a selected row should insert immediately after it\n";
+		return 1;
+	}
+	if (!MoveSequenceRelative(sequence, "BRAVO", "ALPHA", false) ||
+		sequence != std::vector<std::string>({ "BRAVO", "ALPHA", "CHARLIE", "DELTA" })) {
+		std::cerr << "FAIL: moving above a selected row should insert immediately before it\n";
+		return 1;
+	}
+	if (MoveSequenceRelative(sequence, "ALPHA", "BRAVO", true) ||
+		MoveSequenceRelative(sequence, "MISSING", "ALPHA", false) ||
+		sequence != std::vector<std::string>({ "BRAVO", "ALPHA", "CHARLIE", "DELTA" })) {
+		std::cerr << "FAIL: adjacent and stale relative moves should not reorder the sequence\n";
+		return 1;
+	}
+	if (argumentCount == 3) {
+		CCallsignLookup release(arguments[2]);
+		if (release.getDefaultVisibleRows() != 999) {
+			std::cerr << "FAIL: Release default should allow 999 visible rows\n";
+			return 1;
+		}
+	}
+	std::remove(path);
+	std::cout << "Panel row-count parsing and relative sequence-move checks passed.\n";
+}

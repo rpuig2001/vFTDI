@@ -1,0 +1,45 @@
+#pragma once
+#include <string>
+
+using namespace std;
+
+const string PLUGIN_NAME = "vFTDI";
+const string PLUGIN_VERSION = "0.1";
+const string PLUGIN_AUTHOR = "Roger Puig";
+const string PLUGIN_COPY = "GPL v3";
+
+#define VFTDI_RADAR_SCREEN_VIEW "Standard ES radar screen"
+#define VFTDI_PANEL_SCREEN_VIEW "vFTDI"
+
+const int SCREEN_WAKE_CANCEL = 801;
+const int SCREEN_PANEL_ADD = 811;
+const int SCREEN_PANEL_ROUTE = 812;
+const int SCREEN_PANEL_MODE = 813;
+const int SCREEN_PANEL_REMOVE = 814;
+const int SCREEN_PANEL_TOGGLE = 815;
+const int SCREEN_PANEL_MOVE = 816;
+const int SCREEN_PANEL_GAP = 819;
+const int SCREEN_MANAGER_ROWS_DOWN = 822;
+const int SCREEN_MANAGER_ROWS_UP = 823;
+const int SCREEN_SEQUENCE_SCROLL_UP = 824;
+const int SCREEN_SEQUENCE_SCROLL_DOWN = 825;
+const int SCREEN_PANEL_SPEED = 826;
+const int SCREEN_PANEL_TURNS = 827;
+const int SCREEN_TURN_POINT = 828;
+const int SCREEN_TURN_STATUS = 829;
+const int SCREEN_PAIR_MODE = 830;
+const int SCREEN_SEQUENCE_MOVE = 831;
+const int SCREEN_SEQUENCE_SELECT = 832;
+
+const int FUNCTION_GAP_OFF = 901;
+const int FUNCTION_GAP_3_NM = 902;
+const int FUNCTION_GAP_4_NM = 903;
+const int FUNCTION_GAP_5_NM = 904;
+const int FUNCTION_GAP_6_NM = 905;
+const int FUNCTION_GAP_CUSTOM = 906;
+const int FUNCTION_GAP_CUSTOM_VALUE = 907;
+const int FUNCTION_SPEED_DEFAULT = 908;
+const int FUNCTION_SPEED_CUSTOM = 909;
+const int FUNCTION_SPEED_CUSTOM_VALUE = 910;
+const int FUNCTION_SEQUENCE_MOVE_ABOVE = 911;
+const int FUNCTION_SEQUENCE_MOVE_BELOW = 912;
