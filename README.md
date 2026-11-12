@@ -100,7 +100,7 @@ EDDF.25L.25C = ALTERNATING
 
 In this example, `ALT` uses Alternating spacing, `DEP` uses reduced Dependant spacing for its listed pairs, and `IND` makes 25L/25R Independent while 25C/25L remains Alternating. Airport and runway values are case-insensitive; single-digit runway numbers are normalized with a leading zero. The last valid rule for a pair within a profile wins.
 
-Same-runway pairs, pairs at different airports, missing or invalid assignments, and unlisted pairs always remain Alternating. Alternating mode overrides all reduced-spacing rules. Rules are reevaluated on radar refresh, including after runway changes or sequence reordering. No manual S/D callsign overrides remain.
+Same-runway pairs, pairs at different airports, missing or invalid assignments, and unlisted pairs always remain Alternating. For an Independent pair, the sequence skips that aircraft and searches earlier arrivals for the nearest applicable predecessor; an aircraft without one has no spacing target. Alternating mode overrides all reduced-spacing rules. Rules are reevaluated on radar refresh, including after runway changes or sequence reordering. No manual S/D callsign overrides remain.
 
 Alternating FTD is the greater of `minimumDistanceNm` and the configured wake separation, plus `finalBufferNm`. A configured Dependant pair instead uses `minimumParallelDependentDistanceNm` plus `finalBufferNm`. A larger pairwise GAP still takes precedence, and compression is then added for ITD as before. These configurable values are for simulation and must not be interpreted as locally approved operational minima.
 

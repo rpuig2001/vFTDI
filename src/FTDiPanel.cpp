@@ -163,16 +163,12 @@ void DrawSequenceRow(CRadarScreen* screen, CDC& dc, const CRect& row,
 	const bool isAsel = callsign == aselCallsign;
 	const bool isRightClicked = callsign == session.RightClickedSequenceCallsign;
 	const WakeMeasurement* measurement = nullptr;
-	if (index > 0) {
-		const std::string& precedingCallsign = session.ArrivalSequence[index - 1];
-		const auto pair = std::find_if(session.WakeMeasurements.begin(), session.WakeMeasurements.end(),
-				[&precedingCallsign, &callsign](const WakeMeasurement& candidate) {
-				return candidate.PrecedingCallsign == precedingCallsign &&
-					candidate.SucceedingCallsign == callsign;
-			});
-		if (pair != session.WakeMeasurements.end())
-			measurement = &*pair;
-	}
+	const auto pair = std::find_if(session.WakeMeasurements.begin(), session.WakeMeasurements.end(),
+		[&callsign](const WakeMeasurement& candidate) {
+			return candidate.SucceedingCallsign == callsign;
+		});
+	if (pair != session.WakeMeasurements.end())
+		measurement = &*pair;
 	dc.FillSolidRect(row, ConfiguredColor(isAsel ? "COLOR_GAP_TARGET" : "COLOR_PANEL_ROW"));
 	dc.FillSolidRect(row.left, row.top, 2, row.Height(),
 		ConfiguredColor(measurement != nullptr && measurement->ParallelIndependent

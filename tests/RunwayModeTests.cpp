@@ -1,4 +1,5 @@
 #include "../src/CallsignLookup.h"
+#include "../src/SequenceOrder.h"
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -72,7 +73,7 @@ int main(int argumentCount, char** arguments)
 		output << "[profiles]\ndefault = DEP\n";
 		output << "[profile.ALT]\nEDDF.25L.25R = ALTERNATING\n";
 		output << "[profile.DEP]\nEDDF.25L.25R = DEPENDANT\n";
-		output << "[profile.IND]\nEDDF.25L.25R = INDEPENDENT\nEDDF.25L.25C = ALTERNATING\n";
+		output << "[profile.IND]\nEDDF.25L.25R = INDEPENDENT\nEDDF.25L.25C = ALTERNATING\nEDDF.25C.25R = INDEPENDENT\n";
 		output << "[profile.IN2]\nEDDF.25L.25C = ALTERNATING\n";
 	}
 	CCallsignLookup profiles(path);
@@ -87,6 +88,21 @@ int main(int argumentCount, char** arguments)
 		CCallsignLookup::RunwayPairMode::Independent, "IND profile runway mode");
 	Check(profiles.getRunwayPairMode("IND", "EDDF", "25L", "EDDF", "25C") ==
 		CCallsignLookup::RunwayPairMode::Alternating, "profile keeps 25L/25C Alternating");
+	const std::vector<std::string> runways = { "25R", "25L", "25R", "25C", "25L", "25R", "25C" };
+	const auto predecessor = [&](size_t index, const char* profile) {
+		return FindSequencePredecessor(index, [&](size_t candidate) {
+			return profiles.getRunwayPairMode(profile, "EDDF", runways[candidate], "EDDF", runways[index]) !=
+				CCallsignLookup::RunwayPairMode::Independent;
+		});
+	};
+	Check(predecessor(1, "IND") == 1, "25L has no eligible predecessor behind 25R");
+	Check(predecessor(2, "IND") == 0, "25R skips independent 25L to find 25R");
+	Check(predecessor(3, "IND") == 1, "25C skips independent 25R to find 25L");
+	Check(predecessor(4, "IND") == 3, "25L follows alternating 25C");
+	Check(predecessor(5, "IND") == 2, "25R skips both independent runways");
+	Check(predecessor(6, "IND") == 4, "25C skips 25R to find the nearest alternating 25L");
+	Check(predecessor(3, "ALT") == 2, "alternating profile retains adjacent predecessor");
+	Check(predecessor(3, "DEP") == 2, "dependent pairs remain eligible predecessors");
 	Check(profiles.getRunwayPairMode("IN2", "EDDF", "25L", "EDDF", "25C") ==
 		CCallsignLookup::RunwayPairMode::Alternating, "numeric profile name runway mode");
 	{

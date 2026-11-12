@@ -4,6 +4,16 @@
 #include <string>
 #include <vector>
 
+template <typename IsEligible>
+inline size_t FindSequencePredecessor(size_t index, IsEligible isEligible)
+{
+	for (size_t candidate = index; candidate > 0; --candidate) {
+		if (isEligible(candidate - 1))
+			return candidate - 1;
+	}
+	return index;
+}
+
 inline bool MoveSequenceAircraft(
 	std::vector<std::string>& sequence,
 	const std::string& callsign,

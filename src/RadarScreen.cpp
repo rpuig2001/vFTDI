@@ -568,8 +568,7 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 			++aircraft;
 		}
 	}
-	if (Session->SequenceDirty)
-		SynchronizeSequenceMeasurements();
+	SynchronizeSequenceMeasurements();
 	const double predictionNowSeconds = GetTickCount64() / 1000.0;
 	for (auto motion = Session->PlanningMotion.begin(); motion != Session->PlanningMotion.end();) {
 		if (std::find(Session->ArrivalSequence.begin(), Session->ArrivalSequence.end(), motion->first) == Session->ArrivalSequence.end())
@@ -617,10 +616,16 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 	}
 
 	GetPlugIn()->SelectScreenSectorfile(this);
-	if (!Session->ArrivalSequence.empty()) {
+	for (const std::string& leaderCallsign : Session->ArrivalSequence) {
+		const auto follower = std::find_if(Session->WakeMeasurements.begin(), Session->WakeMeasurements.end(),
+			[&leaderCallsign](const WakeMeasurement& measurement) {
+				return measurement.SucceedingCallsign == leaderCallsign;
+			});
+		if (follower != Session->WakeMeasurements.end())
+			continue;
 		const CRadarTarget firstAircraft = GetPlugIn()->RadarTargetSelect(
-			Session->ArrivalSequence.front().c_str());
-		const bool previewFirstRoute = Session->RoutePreviewCallsign == Session->ArrivalSequence.front();
+			leaderCallsign.c_str());
+		const bool previewFirstRoute = Session->RoutePreviewCallsign == leaderCallsign;
 		if (firstAircraft.IsValid() && (showLocalizerRoute || previewFirstRoute)) {
 			const CPosition aircraftPosition = firstAircraft.GetPosition().GetPosition();
 			const CFlightPlan flightPlan = firstAircraft.GetCorrelatedFlightPlan();
@@ -1182,15 +1187,39 @@ void RadarScreen::SynchronizeSequenceMeasurements()
 		measurements.reserve(Session->ArrivalSequence.size() - 1);
 
 	for (size_t index = 1; index < Session->ArrivalSequence.size(); ++index) {
-		const std::string& precedingCallsign = Session->ArrivalSequence[index - 1];
 		const std::string& succeedingCallsign = Session->ArrivalSequence[index];
-		const CRadarTarget preceding = GetPlugIn()->RadarTargetSelect(precedingCallsign.c_str());
 		const CRadarTarget succeeding = GetPlugIn()->RadarTargetSelect(succeedingCallsign.c_str());
-		if (!preceding.IsValid() || !succeeding.IsValid())
+		if (!succeeding.IsValid())
+			continue;
+		const CFlightPlan succeedingPlan = succeeding.GetCorrelatedFlightPlan();
+		if (!succeedingPlan.IsValid())
+			continue;
+		const CFlightPlanData succeedingData = succeedingPlan.GetFlightPlanData();
+		const char* succeedingAirport = succeedingData.GetDestination();
+		const char* succeedingRunway = succeedingData.GetArrivalRwy();
+		const size_t precedingIndex = FindSequencePredecessor(index, [&](size_t candidateIndex) {
+			const CRadarTarget candidate = GetPlugIn()->RadarTargetSelect(Session->ArrivalSequence[candidateIndex].c_str());
+			if (!candidate.IsValid() || !CCallsignLookup::Available || CCallsignLookup::Lookup == nullptr)
+				return true;
+			const CFlightPlan candidatePlan = candidate.GetCorrelatedFlightPlan();
+			if (!candidatePlan.IsValid())
+				return true;
+			const CFlightPlanData candidateData = candidatePlan.GetFlightPlanData();
+			const char* candidateAirport = candidateData.GetDestination();
+			const char* candidateRunway = candidateData.GetArrivalRwy();
+			return CCallsignLookup::Lookup->getRunwayPairMode(Session->ActiveProfile,
+				candidateAirport != nullptr ? candidateAirport : "", candidateRunway != nullptr ? candidateRunway : "",
+				succeedingAirport != nullptr ? succeedingAirport : "", succeedingRunway != nullptr ? succeedingRunway : "") !=
+				CCallsignLookup::RunwayPairMode::Independent;
+		});
+		if (precedingIndex == index)
+			continue;
+		const std::string& precedingCallsign = Session->ArrivalSequence[precedingIndex];
+		const CRadarTarget preceding = GetPlugIn()->RadarTargetSelect(precedingCallsign.c_str());
+		if (!preceding.IsValid())
 			continue;
 		const CFlightPlan precedingPlan = preceding.GetCorrelatedFlightPlan();
-		const CFlightPlan succeedingPlan = succeeding.GetCorrelatedFlightPlan();
-		if (!precedingPlan.IsValid() || !succeedingPlan.IsValid())
+		if (!precedingPlan.IsValid())
 			continue;
 
 		const char precedingWake = precedingPlan.GetFlightPlanData().GetAircraftWtc();
@@ -1200,11 +1229,11 @@ void RadarScreen::SynchronizeSequenceMeasurements()
 				return candidate.PrecedingCallsign == precedingCallsign &&
 					candidate.SucceedingCallsign == succeedingCallsign;
 			});
-		const double gapNm = previous != Session->WakeMeasurements.end() ? previous->GapNm : 0.0;
 		WakeMeasurement measurement = { precedingCallsign, succeedingCallsign,
-			RequiredSpacingNm(precedingWake, succeedingWake), gapNm };
+			RequiredSpacingNm(precedingWake, succeedingWake) };
 		if (previous != Session->WakeMeasurements.end())
-			measurement.PlanningTurnTiming = previous->PlanningTurnTiming;
+			measurement = *previous;
+		measurement.RequiredNm = RequiredSpacingNm(precedingWake, succeedingWake);
 		measurements.push_back(measurement);
 	}
 
