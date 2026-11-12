@@ -70,7 +70,21 @@ The standalone geometry/timing regression checks are in `tests/TurningPointMathT
 
 `DEFAULTROWS` sets the initial maximum number of visible aircraft rows in both vFTDI views. For example, `#DEFAULTROWS 999` allows up to 999 rows to be visible when space permits. Values below 1 are clamped to 1; omitting the setting or supplying invalid text keeps the previous default of three. The panel's `+` and `-` controls still adjust the row count during the session. Available screen height limits the number drawn at once, and scrolling remains available for additional aircraft; this does not limit the arrival sequence length. Reload the plugin to apply a changed startup default.
 
-The plugin reads `config.ini` from the directory containing the DLL. The sample configuration at `src/config.ini` is copied next to the DLL during a build. Settings are grouped into `[general]`, `[runways.<ICAO>.<RUNWAY>]`, `[separation]`, `[wake]`, `[profiles]`, `[profile.<NAME>]`, `[speed]`, and `[colors]` sections. Distances use nautical miles, speeds use knots, courses use degrees, and colors are RGB triples. `longApproachNm` defines the remaining-route distance where the model transitions from current groundspeed to `longApproachSpeedKts` for its approach estimate; `0` disables this phase. The speed is accounted for in predicted ITD calculations before an aircraft reaches that boundary. After joining, the existing speed-reduction and final-approach-speed phases are unchanged. `FTD_TARGET` controls the red FTD arc and `ITD_TARGET` the blue ITD arc.
+The plugin reads `config.ini` from the directory containing the DLL. The sample configuration at `src/config.ini` is copied next to the DLL during a build. Settings are grouped into `[general]`, `[runways.<ICAO>.<RUNWAY>]`, `[separation]`, `[wake]`, `[profiles]`, `[profile.<NAME>]`, `[speed]`, and `[colors]` sections. Distances use nautical miles, speeds use knots, courses use degrees, and colors are RGB triples. `FTD_TARGET` controls the red FTD arc and `ITD_TARGET` the blue ITD arc.
+
+### Speed Model
+
+The `[speed]` settings describe predicted speeds for compression and turn timing; they do not issue speed instructions or change an aircraft's actual speed. The model switches speeds at its phase boundaries immediately; it does not simulate gradual deceleration.
+
+Before an uncleared aircraft reaches LOCALIZERPOINT, the prediction starts with its observed groundspeed. If `longApproachNm` is greater than zero, the model uses `longApproachSpeedKts` for the portion of the route within that remaining distance of the runway, up to LOCALIZERPOINT. The resulting long-approach groundspeed is capped at the aircraft's current groundspeed. Set `longApproachNm = 0` to disable this phase.
+
+From LOCALIZERPOINT to `speedReductionNm` before the runway, the model uses `speedUntilReductionKts`. For the last `speedReductionNm`, it uses the appropriate `finalApproachSpeed_<category>`. An aircraft already established inside LOCALIZERPOINT uses the same final-leg phases without routing back to the join point.
+
+CA/VA clearance changes the modeled route to the direct distance from the aircraft to the runway. With no remaining pre-join leg, the model uses `speedUntilReductionKts` immediately if the aircraft is farther than `speedReductionNm` from the runway; at or inside that distance it uses final approach speed immediately. Clearance does not itself command a speed change.
+
+For example, with `speedUntilReductionKts = 170` and `speedReductionNm = 5`, a cleared aircraft 10 NM from the runway is modeled at 170 kt for 5 NM, then at its configured final speed for the last 5 NM. If it is cleared at 4 NM, the prediction uses final speed for the remaining 4 NM.
+
+Final speed comes from `finalApproachSpeed_H`, `_M`, `_L`, or `_S` according to wake category; category `J` uses `_S`. An aircraft's `FAS` row control overrides its category value for both compression and turn predictions. Where usable weather is available, the model adjusts configured speeds for wind to estimate groundspeed; otherwise it uses the configured value. Observed groundspeed is already a groundspeed and is not adjusted again.
 
 ### Sequence Mode And Runway Rules
 
