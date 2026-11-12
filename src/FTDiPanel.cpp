@@ -84,15 +84,17 @@ void DrawStatusBadge(CDC& dc, const CRect& area, const std::string& status)
 	const bool turnSoon = status.compare(0, 9, "TURN SOON") == 0;
 	const bool updating = status == "UPDATING";
 	const bool countdown = status.compare(0, 3, "IN ") == 0;
+	const bool noDelay = status == "NO DELAY";
 	const bool cleared = status == "CLEARED";
 	const bool leader = status == "LEADER";
 	const char* fillKey = turnNow ? "COLOR_BREACH_ALERT"
 		: (turnSoon ? "COLOR_GAP_TARGET"
 			: (updating ? "COLOR_TURN_PASSED"
 				: (countdown ? "COLOR_TURN_POINT"
-					: (cleared ? "COLOR_PANEL_DISABLED"
-						: (leader ? "COLOR_PANEL_SURFACE" : "COLOR_PANEL_STATUS_WARNING")))));
-	const char* textKey = turnNow || leader || (!turnSoon && !updating && !countdown && !cleared)
+					: (noDelay ? "COLOR_ITD_TARGET"
+						: (cleared ? "COLOR_PANEL_DISABLED"
+							: (leader ? "COLOR_PANEL_SURFACE" : "COLOR_PANEL_STATUS_WARNING"))))));
+	const char* textKey = turnNow || leader || (!turnSoon && !updating && !countdown && !noDelay && !cleared)
 		? "COLOR_PANEL_HEADER_TEXT" : "COLOR_PANEL_TEXT";
 	const int savedState = dc.SaveDC();
 	CFont font;
@@ -158,7 +160,6 @@ void DrawSequenceRow(CRadarScreen* screen, CDC& dc, const CRect& row,
 	const FTDiSession& session, int index, const std::string& aselCallsign)
 {
 	const std::string& callsign = session.ArrivalSequence[index];
-	const bool isSelected = callsign == session.SelectedSequenceCallsign;
 	const bool isAsel = callsign == aselCallsign;
 	const bool isRightClicked = callsign == session.RightClickedSequenceCallsign;
 	const WakeMeasurement* measurement = nullptr;
@@ -172,8 +173,7 @@ void DrawSequenceRow(CRadarScreen* screen, CDC& dc, const CRect& row,
 		if (pair != session.WakeMeasurements.end())
 			measurement = &*pair;
 	}
-	dc.FillSolidRect(row, ConfiguredColor(isAsel ? "COLOR_GAP_TARGET"
-		: (isSelected ? "COLOR_PANEL_ACCENT" : "COLOR_PANEL_ROW")));
+	dc.FillSolidRect(row, ConfiguredColor(isAsel ? "COLOR_GAP_TARGET" : "COLOR_PANEL_ROW"));
 	dc.FillSolidRect(row.left, row.top, 2, row.Height(),
 		ConfiguredColor(measurement != nullptr && measurement->ParallelIndependent
 			? "COLOR_PANEL_DISABLED" : (measurement != nullptr && measurement->ParallelDependent
@@ -468,9 +468,8 @@ void DrawFTDiRadarOverlay(
 		return;
 
 	const int availableWidth = bounds.right - bounds.left - 12;
-	const int launcherWidth = availableWidth < 178 ? availableWidth : 178;
 	const int panelWidth = availableWidth < 228 ? availableWidth : 228;
-	const int managerWidth = session->ManagerExpanded ? panelWidth : launcherWidth;
+	const int managerWidth = panelWidth;
 	const int screenHeight = bounds.bottom - bounds.top;
 	const int rowCapacity = screenHeight > 102 ? (screenHeight - 102) / SequenceRowHeight : 1;
 	const int rowsLimit = session->ManagerVisibleRows < rowCapacity

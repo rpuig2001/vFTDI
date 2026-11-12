@@ -47,7 +47,7 @@ VFTDIPlugin::VFTDIPlugin()
         WeatherService.reset(new AirportWeatherService(CCallsignLookup::Lookup->getAirportCodes()));
 
     KeyPollingThread = std::thread([this]() {
-        bool ctrlWWasDown = false;
+        bool altWWasDown = false;
         bool leftWasDown = false;
         bool rightWasDown = false;
         while (!StopKeyPolling.load()) {
@@ -56,12 +56,12 @@ VFTDIPlugin::VFTDIPlugin()
             if (foregroundWindow != nullptr)
                 GetWindowThreadProcessId(foregroundWindow, &foregroundProcess);
 
-            const bool ctrlWDown = foregroundProcess == GetCurrentProcessId() &&
-                (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0 &&
+            const bool altWDown = foregroundProcess == GetCurrentProcessId() &&
+                (GetAsyncKeyState(VK_MENU) & 0x8000) != 0 &&
                 (GetAsyncKeyState('W') & 0x8000) != 0;
-            if (ctrlWDown && !ctrlWWasDown)
+            if (altWDown && !altWWasDown)
                 SequenceAddRequested.store(true);
-            ctrlWWasDown = ctrlWDown;
+            altWWasDown = altWDown;
 
             const bool isForeground = foregroundProcess == GetCurrentProcessId();
             const bool selectionActive = SequenceSelectionActive.load();
