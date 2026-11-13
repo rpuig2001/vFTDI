@@ -78,6 +78,32 @@ void DrawButton(CDC& dc, const CRect& rect, const std::string& label, COLORREF f
 	dc.RestoreDC(savedState);
 }
 
+void DrawWakeCategoryBadge(CDC& dc, const CRect& area, char category)
+{
+	if (category == 'J')
+		category = 'S';
+	const char* colorKey = "COLOR_PANEL_DISABLED";
+	switch (category) {
+	case 'L': colorKey = "COLOR_PANEL_WAKE_L"; break;
+	case 'M': colorKey = "COLOR_PANEL_WAKE_M"; break;
+	case 'H': colorKey = "COLOR_PANEL_WAKE_H"; break;
+	case 'S': colorKey = "COLOR_PANEL_WAKE_S"; break;
+	default: category = '?'; break;
+	}
+	const bool attention = category == 'H' || category == 'S';
+	const int savedState = dc.SaveDC();
+	dc.FillSolidRect(area, ConfiguredColor(colorKey));
+	CFont font;
+	font.CreatePointFont(90, attention ? "Segoe UI Bold" : "Segoe UI", &dc);
+	dc.SelectObject(&font);
+	dc.SetBkMode(TRANSPARENT);
+	dc.SetTextColor(ConfiguredColor(category == 'H' || category == '?'
+		? "COLOR_PANEL_TEXT" : "COLOR_PANEL_HEADER_TEXT"));
+	CRect textArea = area;
+	dc.DrawText(std::string(1, category).c_str(), &textArea, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+	dc.RestoreDC(savedState);
+}
+
 void DrawStatusBadge(CDC& dc, const CRect& area, const std::string& status)
 {
 	const bool turnNow = status.compare(0, 8, "TURN NOW") == 0;
@@ -189,6 +215,14 @@ void DrawSequenceRow(CRadarScreen* screen, CDC& dc, const CRect& row,
 		controlsLeft - 3, row.top + 19);
 	DrawFittedText(dc, callsignArea, sequenceTitle,
 		ConfiguredColor(isRightClicked ? "COLOR_PANEL_STATUS_WARNING" : "COLOR_PANEL_TEXT"), 9, 7, true);
+	CFlightPlan flightPlan = screen->GetPlugIn()->FlightPlanSelect(callsign.c_str());
+	if (!flightPlan.IsValid()) {
+		const CRadarTarget target = screen->GetPlugIn()->RadarTargetSelect(callsign.c_str());
+		if (target.IsValid())
+			flightPlan = target.GetCorrelatedFlightPlan();
+	}
+	const char wakeCategory = flightPlan.IsValid() ? flightPlan.GetFlightPlanData().GetAircraftWtc() : '?';
+	DrawWakeCategoryBadge(dc, CRect(controlsLeft + 2, row.top + 2, controlsLeft + 22, row.top + 19), wakeCategory);
 
 	const CRect moveButton(row.right - 64, row.top + 2, row.right - 22, row.top + 19);
 	const CRect removeButton(row.right - 20, row.top + 2, row.right - 2, row.top + 19);

@@ -17,6 +17,8 @@ An independent VATSIM EuroScope plugin that displays and lets controllers adjust
 
 ## Controls
 
+Each callsign has a wake-category badge: green `L`, blue `M`, amber `H`, or red `S`. Heavy and Super badges use bold text for extra emphasis. EuroScope category `J` is displayed as `S`; an unavailable or unrecognized category is shown as a neutral `?`. Badges appear in both vFTDI views.
+
 The radar manager is 228 px wide in both collapsed and expanded states and uses 38 px aircraft rows. Up to five named runway-pair profiles appear as buttons below the toolbar; profile names are 1-3 alphanumeric characters. Turn status appears in compact color-coded badges: yellow `TURN SOON`, cyan countdowns, amber `UPDATING`, and subdued `NO DELAY`, cleared/leader, or unavailable states. When no delay is needed, the blue turn point is hidden. Row-count `+`/`-` controls are in the title bar; the duplicate ARRIVALS header has been removed. Available screen height and the configured startup row count still govern scrolling.
 
 - Drag the sequence manager's title strip to move it; it stays inside the radar viewport. Click `+` to expand it or `-` to collapse it. In the expanded window, `+`/`-` adjust its height and the right-side scrollbar navigates longer sequences.
@@ -155,6 +157,7 @@ All colors drawn by vFTDI are configurable in the DLL's `config.ini` under `[col
 | `PANEL_DISABLED` / `PANEL_CONTROL` | Disabled button and title/resize button backgrounds |
 | `PANEL_REMOVE_BACKGROUND` / `PANEL_REMOVE_TEXT` | Remove button background and text |
 | `PANEL_STATUS_WARNING` | Passed-turn and unavailable-prediction status text |
+| `PANEL_WAKE_L` / `PANEL_WAKE_M` / `PANEL_WAKE_H` / `PANEL_WAKE_S` | Light, Medium, Heavy, and Super wake-category badge backgrounds |
 
 EuroScope-owned popup menus and native screen-object tooltips remain controlled by EuroScope and Windows, not by these plugin settings.
 

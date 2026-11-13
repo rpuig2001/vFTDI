@@ -528,7 +528,11 @@ CCallsignLookup::RgbColor CCallsignLookup::getDefaultColor(const std::string& ke
 		{ "COLOR_PANEL_REMOVE_BACKGROUND", { 74, 43, 37 } },
 		{ "COLOR_PANEL_REMOVE_TEXT", { 255, 190, 160 } },
 		{ "COLOR_PANEL_STATUS_WARNING", { 110, 50, 20 } },
-		{ "COLOR_PANEL_CONTROL", { 58, 79, 97 } }
+		{ "COLOR_PANEL_CONTROL", { 58, 79, 97 } },
+		{ "COLOR_PANEL_WAKE_L", { 38, 105, 73 } },
+		{ "COLOR_PANEL_WAKE_M", { 45, 99, 150 } },
+		{ "COLOR_PANEL_WAKE_H", { 245, 179, 45 } },
+		{ "COLOR_PANEL_WAKE_S", { 183, 43, 53 } }
 	};
 	if (key == "COLOR_FTD_ROUTE")
 		return getDefaultColor("COLOR_FTD_TARGET");

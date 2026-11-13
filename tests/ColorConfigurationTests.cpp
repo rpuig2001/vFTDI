@@ -24,14 +24,16 @@ int main(int argumentCount, char** arguments)
 		"COLOR_PANEL_BACKGROUND", "COLOR_PANEL_SURFACE", "COLOR_PANEL_ROW", "COLOR_PANEL_DIVIDER",
 		"COLOR_PANEL_TEXT", "COLOR_PANEL_HEADER_TEXT", "COLOR_PANEL_MUTED_TEXT", "COLOR_PANEL_ACCENT",
 		"COLOR_PANEL_WARNING", "COLOR_PANEL_DISABLED", "COLOR_PANEL_REMOVE_BACKGROUND",
-		"COLOR_PANEL_REMOVE_TEXT", "COLOR_PANEL_STATUS_WARNING", "COLOR_PANEL_CONTROL"
+		"COLOR_PANEL_REMOVE_TEXT", "COLOR_PANEL_STATUS_WARNING", "COLOR_PANEL_CONTROL",
+		"COLOR_PANEL_WAKE_L", "COLOR_PANEL_WAKE_M", "COLOR_PANEL_WAKE_H", "COLOR_PANEL_WAKE_S"
 	};
 	{
 		std::ofstream config(path);
+		config << "[colors]\n";
 		for (const char* key : keys)
-			config << '#' << key << " 12 34 56\n";
-		config << "#COLOR_PANEL_BACKGROUND -1 0 0\n#COLOR_TURN_POINT 256 0 0\n";
-		config << "#COLOR_TOOLTIP_TEXT 1 2\n#COLOR_PANEL_TEXT 0 255 0\n";
+			config << (key + 6) << " = 12, 34, 56\n";
+		config << "PANEL_BACKGROUND = -1, 0, 0\nTURN_POINT = 256, 0, 0\n";
+		config << "TOOLTIP_TEXT = 1, 2\nPANEL_TEXT = 0, 255, 0\n";
 	}
 	CCallsignLookup configured(path);
 	if (configured.getMarkerSizePixels(false) != 22 || configured.getMarkerSizePixels(true) != 26) {
@@ -49,9 +51,9 @@ int main(int argumentCount, char** arguments)
 		return 1;
 	{
 		std::ofstream config(path);
-		config << "#COLOR_FTD_TARGET 1 2 3\n#COLOR_ITD_TARGET 4 5 6\n";
-		config << "#COLOR_TURN_POINT 300 0 0\n";
-		config << "#FTDMARKERSIZE 10\n#ITDMARKERSIZE 30\n";
+		config << "[colors]\nFTD_TARGET = 1, 2, 3\nITD_TARGET = 4, 5, 6\n";
+		config << "TURN_POINT = 300, 0, 0\n";
+		config << "[general]\nftdMarkerSize = 10\nitdMarkerSize = 30\n";
 	}
 	CCallsignLookup legacy(path);
 	if (legacy.getMarkerSizePixels(false) != 30 || legacy.getMarkerSizePixels(true) != 32) {
@@ -67,20 +69,24 @@ int main(int argumentCount, char** arguments)
 	if (ConfiguredColor("COLOR_PANEL_SURFACE") != RGB(73, 96, 116))
 		return 1;
 	CheckColor(CCallsignLookup::getDefaultColor("COLOR_FTD_ROUTE"), 255, 75, 75, "unloaded route default");
+	CheckColor(CCallsignLookup::getDefaultColor("COLOR_PANEL_WAKE_L"), 38, 105, 73, "light category default");
+	CheckColor(CCallsignLookup::getDefaultColor("COLOR_PANEL_WAKE_M"), 45, 99, 150, "medium category default");
+	CheckColor(CCallsignLookup::getDefaultColor("COLOR_PANEL_WAKE_H"), 245, 179, 45, "heavy category default");
+	CheckColor(CCallsignLookup::getDefaultColor("COLOR_PANEL_WAKE_S"), 183, 43, 53, "super category default");
 	{
 		std::ofstream config(path);
-		config << "#FTDMARKERSIZE 999\n#ITDMARKERSIZE -5\n";
+		config << "[general]\nftdMarkerSize = 999\nitdMarkerSize = -5\n";
 	}
 	CCallsignLookup bounded(path);
 	if (bounded.getMarkerSizePixels(true) != 96 || bounded.getMarkerSizePixels(false) != 6)
 		return 1;
 	{
 		std::ofstream config(path);
-		config << "#FTDMARKERSIZE invalid\n#ITDMARKERSIZE invalid\n";
+		config << "[general]\nftdMarkerSize = invalid\nitdMarkerSize = invalid\n";
 	}
 	CCallsignLookup invalid(path);
 	if (invalid.getMarkerSizePixels(true) != 26 || invalid.getMarkerSizePixels(false) != 22)
 		return 1;
 	std::remove(path);
-	std::cout << "All marker-size hierarchy/limits and 25 color configuration checks passed.\n";
+	std::cout << "All marker-size hierarchy/limits and 29 color configuration checks passed.\n";
 }
