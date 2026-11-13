@@ -38,7 +38,8 @@ public:
 	bool usesDependentSpacing(bool dependentMode,
 		const std::string& precedingAirport, const std::string& precedingRunway,
 		const std::string& succeedingAirport, const std::string& succeedingRunway) const;
-	bool getWakeSeparation(char preceding, char succeeding, double& separationNm) const;
+	bool getWakeSeparation(char preceding, char succeeding, const char* precedingAircraftInfo,
+		const char* succeedingAircraftInfo, double& separationNm) const;
 	int getSpeedReductionDistanceNm() const;
 	int getSpeedUntilReductionKts() const;
 	bool getReduceSpeedOnClearance() const;
@@ -64,6 +65,7 @@ private:
 	std::vector<std::string> profileNames;
 	std::string defaultProfile;
 	std::vector<std::string> airportCodes;
+	std::map<std::string, char> recatCategories;
 	std::map<std::string, double> wakeSeparations{
 		{ "WTC_M_L", 5.0 },
 		{ "WTC_H_L", 6.0 },
@@ -73,6 +75,15 @@ private:
 		{ "WTC_J_M", 7.0 },
 		{ "WTC_J_H", 6.0 }
 	};
+	std::map<std::string, double> recatEuWakeSeparations{
+		{ "RECAT_A_A", 3.0 }, { "RECAT_A_B", 4.0 }, { "RECAT_A_C", 5.0 },
+		{ "RECAT_A_D", 5.0 }, { "RECAT_A_E", 6.0 }, { "RECAT_A_F", 8.0 },
+		{ "RECAT_B_B", 3.0 }, { "RECAT_B_C", 4.0 }, { "RECAT_B_D", 4.0 },
+		{ "RECAT_B_E", 5.0 }, { "RECAT_B_F", 7.0 },
+		{ "RECAT_C_B", 2.5 }, { "RECAT_C_C", 3.0 }, { "RECAT_C_D", 3.0 }, { "RECAT_C_E", 4.0 },
+		{ "RECAT_C_F", 6.0 }, { "RECAT_D_F", 5.0 }, { "RECAT_E_F", 4.0 },
+		{ "RECAT_F_F", 3.0 }
+	};
 	double minimumDistanceNm = 3.0;
 	double minimumParallelDependentDistanceNm = 3.0;
 	double finalBufferNm = 1.0;
@@ -80,5 +91,6 @@ private:
 	double longApproachSpeedKts = 250.0;
 	bool showLocalizerRoute = false;
 	bool dependentMode = false;
+	bool useRecatEu = false;
 	bool reduceSpeedOnClearance = true;
 };

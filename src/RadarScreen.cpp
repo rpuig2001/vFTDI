@@ -107,13 +107,14 @@ double FinalBufferNm()
 		: 1.0;
 }
 
-double RequiredSpacingNm(char precedingWake, char succeedingWake)
+double RequiredSpacingNm(char precedingWake, char succeedingWake,
+	const char* precedingAircraftInfo, const char* succeedingAircraftInfo)
 {
 	double baseDistanceNm = MinimumDistanceNm();
 	if (CCallsignLookup::Available && CCallsignLookup::Lookup != nullptr) {
 		double wakeDistanceNm = 0.0;
-		if (CCallsignLookup::Lookup->getWakeSeparation(precedingWake, succeedingWake, wakeDistanceNm) &&
-			wakeDistanceNm > baseDistanceNm)
+		if (CCallsignLookup::Lookup->getWakeSeparation(precedingWake, succeedingWake,
+			precedingAircraftInfo, succeedingAircraftInfo, wakeDistanceNm))
 			baseDistanceNm = wakeDistanceNm;
 	}
 	return baseDistanceNm + FinalBufferNm();
@@ -1266,18 +1267,24 @@ void RadarScreen::SynchronizeSequenceMeasurements()
 		if (!precedingPlan.IsValid())
 			continue;
 
-		const char precedingWake = precedingPlan.GetFlightPlanData().GetAircraftWtc();
-		const char succeedingWake = succeedingPlan.GetFlightPlanData().GetAircraftWtc();
+		const CFlightPlanData precedingData = precedingPlan.GetFlightPlanData();
+		const CFlightPlanData succeedingData = succeedingPlan.GetFlightPlanData();
+		const char precedingWake = precedingData.GetAircraftWtc();
+		const char succeedingWake = succeedingData.GetAircraftWtc();
+		const char* precedingAircraftInfo = precedingData.GetAircraftInfo();
+		const char* succeedingAircraftInfo = succeedingData.GetAircraftInfo();
 		const auto previous = std::find_if(Session->WakeMeasurements.begin(), Session->WakeMeasurements.end(),
 			[&precedingCallsign, &succeedingCallsign](const WakeMeasurement& candidate) {
 				return candidate.PrecedingCallsign == precedingCallsign &&
 					candidate.SucceedingCallsign == succeedingCallsign;
 			});
 		WakeMeasurement measurement = { precedingCallsign, succeedingCallsign,
-			RequiredSpacingNm(precedingWake, succeedingWake) };
+				RequiredSpacingNm(precedingWake, succeedingWake,
+					precedingAircraftInfo, succeedingAircraftInfo) };
 		if (previous != Session->WakeMeasurements.end())
 			measurement = *previous;
-		measurement.RequiredNm = RequiredSpacingNm(precedingWake, succeedingWake);
+		measurement.RequiredNm = RequiredSpacingNm(precedingWake, succeedingWake,
+			precedingAircraftInfo, succeedingAircraftInfo);
 		measurements.push_back(measurement);
 	}
 

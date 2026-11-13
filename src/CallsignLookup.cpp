@@ -7,11 +7,29 @@
 #include <sstream>
 
 namespace {
+std::string Trim(std::string value);
+
 std::string UppercaseIdentifier(std::string value)
 {
 	std::transform(value.begin(), value.end(), value.begin(),
 		[](unsigned char character) { return static_cast<char>(std::toupper(character)); });
 	return value;
+}
+
+std::string AircraftDesignator(const char* aircraftInfo)
+{
+	if (aircraftInfo == nullptr)
+		return {};
+	std::string designator = Trim(aircraftInfo);
+	const size_t end = designator.find_first_of("/ \t");
+	if (end != std::string::npos)
+		designator.erase(end);
+	designator = UppercaseIdentifier(designator);
+	if (designator.size() < 2 || designator.size() > 4 ||
+		!std::all_of(designator.begin(), designator.end(),
+			[](unsigned char character) { return std::isalnum(character) != 0; }))
+		return {};
+	return designator;
 }
 
 std::string NormalizeRunway(std::string runway)
@@ -90,8 +108,14 @@ std::string IniDirective(const std::string& section, const std::string& key)
 		if (normalizedKey == "MINIMUMPARALLELDEPENDENTDISTANCENM") return "MINPARALLELDEPENDENTDISTANCE";
 		if (normalizedKey == "FINALBUFFERNM") return "FINALBUFFER";
 	}
+	if (section == "WAKE" && normalizedKey == "SCHEME")
+		return "WAKESCHEME";
 	if (section == "WAKE")
 		return "WTC_" + normalizedKey;
+	if (section == "RECAT")
+		return "RECATCATEGORY_" + normalizedKey;
+	if (section == "RECAT.SEPARATION")
+		return "RECATSEPARATION_" + normalizedKey;
 	if (section == "SPEED") {
 		if (normalizedKey == "LONGAPPROACHNM" || normalizedKey == "LONGAPPROACHSPEEDKTS" ||
 			normalizedKey == "SPEEDUNTILREDUCTIONKTS" || normalizedKey == "SPEEDREDUCTIONNM" ||
@@ -172,6 +196,40 @@ CCallsignLookup::CCallsignLookup(const std::string& fileName)
 		if (key == "DEFAULTPROFILE") {
 			if (parser >> requestedDefaultProfile)
 				requestedDefaultProfile = UppercaseIdentifier(requestedDefaultProfile);
+			continue;
+		}
+		if (key == "WAKESCHEME") {
+			std::string value;
+			if (parser >> value) {
+				value = UppercaseIdentifier(value);
+				if (value == "WTC")
+					useRecatEu = false;
+				else if (value == "RECAT-EU" || value == "RECATEU")
+					useRecatEu = true;
+			}
+			continue;
+		}
+		if (key.compare(0, 14, "RECATCATEGORY_") == 0) {
+			const std::string category = key.substr(14);
+			std::string designator;
+			if (category.size() == 1 && category[0] >= 'A' && category[0] <= 'F') {
+				while (parser >> designator) {
+					designator = UppercaseIdentifier(designator);
+					if (designator.size() >= 2 && designator.size() <= 4 &&
+						std::all_of(designator.begin(), designator.end(),
+							[](unsigned char character) { return std::isalnum(character) != 0; }))
+						recatCategories[designator] = category[0];
+				}
+			}
+			continue;
+		}
+		if (key.compare(0, 16, "RECATSEPARATION_") == 0) {
+			const std::string pair = key.substr(16);
+			double value;
+			if (pair.size() == 3 && pair[0] >= 'A' && pair[0] <= 'F' && pair[1] == '_' &&
+				pair[2] >= 'A' && pair[2] <= 'F' && parser >> value &&
+				std::isfinite(value) && value >= 0.0)
+				recatEuWakeSeparations["RECAT_" + pair] = value;
 			continue;
 		}
 		if (key == "SEQUENCEMODE") {
@@ -435,8 +493,21 @@ bool CCallsignLookup::usesDependentSpacing(bool enabled,
 		succeedingAirport, succeedingRunway) == RunwayPairMode::Dependant;
 }
 
-bool CCallsignLookup::getWakeSeparation(char preceding, char succeeding, double& separationNm) const
+bool CCallsignLookup::getWakeSeparation(char preceding, char succeeding,
+	const char* precedingAircraftInfo, const char* succeedingAircraftInfo, double& separationNm) const
 {
+	if (useRecatEu) {
+		const auto precedingCategory = recatCategories.find(AircraftDesignator(precedingAircraftInfo));
+		const auto succeedingCategory = recatCategories.find(AircraftDesignator(succeedingAircraftInfo));
+		if (precedingCategory != recatCategories.end() && succeedingCategory != recatCategories.end()) {
+			const std::string key = std::string("RECAT_") + precedingCategory->second + "_" + succeedingCategory->second;
+			const auto value = recatEuWakeSeparations.find(key);
+			if (value == recatEuWakeSeparations.end())
+				return false;
+			separationNm = value->second;
+			return true;
+		}
+	}
 	const std::string key = std::string("WTC_") + preceding + "_" + succeeding;
 	const auto value = wakeSeparations.find(key);
 	if (value == wakeSeparations.end())

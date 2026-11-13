@@ -67,6 +67,9 @@ int main(int argumentCount, char** arguments)
 	}
 	CCallsignLookup defaults(path);
 	Check(!defaults.getDependentMode(), "missing mode defaults to Alternating");
+	double defaultWakeDistanceNm = 0.0;
+	Check(defaults.getWakeSeparation('H', 'H', "A388/M-S", "A320/M-S", defaultWakeDistanceNm) &&
+		defaultWakeDistanceNm == 4.0, "missing wake scheme defaults to WTC");
 	Check(defaults.getReduceSpeedOnClearance(), "missing speed-on-clearance switch preserves immediate reduction");
 	for (const char* value : { "false", "0", "FaLsE" }) {
 		{
@@ -132,6 +135,30 @@ int main(int argumentCount, char** arguments)
 	Check(boundedProfiles.getProfileNames() == std::vector<std::string>({ "A", "BB", "CCC", "E", "F" }),
 		"at most five profiles with one-to-three-character alphanumeric names");
 	Check(boundedProfiles.getDefaultProfile() == "F", "configured profile default");
+	{
+		std::ofstream output(path);
+		output << "[wake]\nscheme = WTC\nH_H = 4\nH_M = 5\n";
+		output << "[recat]\nA = A388,A124\nD = A320\nF = E145\nC = B763\nB = B744\n";
+	}
+	CCallsignLookup wtc(path);
+	double wakeDistanceNm = 0.0;
+	Check(wtc.getWakeSeparation('H', 'H', "A388/M-S", "A320/M-S", wakeDistanceNm) &&
+		wakeDistanceNm == 4.0, "WTC is the default selectable scheme");
+	{
+		std::ofstream output(path);
+		output << "[wake]\nscheme = recat-eu\nH_H = 4\nH_M = 5\n";
+		output << "[recat]\nA = A388,A124\nD = A320\nF = E145\nC = B763\nB = B744\n";
+		output << "[recat.separation]\nA_D = 4.5\n";
+	}
+	CCallsignLookup recat(path);
+	Check(recat.getWakeSeparation('J', 'M', "a388/M-S", "A320/M-S", wakeDistanceNm) &&
+		wakeDistanceNm == 4.5, "RECAT-EU category distances are configurable");
+	Check(recat.getWakeSeparation('J', 'L', "A388/M-S", "E145/M-S", wakeDistanceNm) &&
+		wakeDistanceNm == 8.0, "RECAT-EU A-F separation");
+	Check(recat.getWakeSeparation('H', 'M', "ZZZZ/M-S", "A320/M-S", wakeDistanceNm) &&
+		wakeDistanceNm == 5.0, "unmapped aircraft use legacy WTC separation");
+	Check(!recat.getWakeSeparation('H', 'H', "B763/M-S", "B744/M-S", wakeDistanceNm),
+		"RECAT-EU pairs without a published wake minimum do not invent one");
 	if (argumentCount == 3) {
 		CCallsignLookup release(arguments[2]);
 		Check(release.getProfileNames() == std::vector<std::string>({ "ALT", "DEP", "IND", "IN2" }), "INI profiles");
@@ -149,6 +176,12 @@ int main(int argumentCount, char** arguments)
 		Check(release.getRunwayPairMode("IND", "EDDF", "25C", "EDDF", "25R") ==
 			CCallsignLookup::RunwayPairMode::Independent, "INI IND profile keeps 25C/25R Independent");
 		Check(release.getMinimumParallelDependentDistanceNm() == 1.5, "Release reduced spacing preserved");
+		Check(release.getWakeSeparation('H', 'H', "A388/M-S", "A320/M-S", wakeDistanceNm) &&
+			wakeDistanceNm == 4.0, "Release starts with WTC wake minima");
+		{
+			std::ofstream output(path);
+			output << "[wake]\nscheme = RECAT-EU\n";
+		}
 		double course = 0.0;
 		Check(release.getLocalizerCourseDegrees("EDDF", "25L", course) && course == 249.0,
 			"INI runway course");
