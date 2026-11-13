@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <algorithm>
+#include <initializer_list>
 
 namespace TurningPointMath {
 	constexpr double Pi = 3.14159265358979323846;
@@ -46,6 +47,13 @@ namespace TurningPointMath {
 		double ReportOffsetHours = 0.0;
 	};
 
+	struct RoutePoint {
+		double OutwardNm = 0.0;
+		double CrossTrackNm = 0.0;
+	};
+
+	constexpr int RouteCurveSegments = 96;
+
 	struct TurnRoute {
 		double StartDistanceNm = 0.0;
 		double BeforeFinalNm = 0.0;
@@ -55,7 +63,42 @@ namespace TurningPointMath {
 		double DirectDistanceNm = 0.0;
 		double TimingExcessSeconds = 0.0;
 		double ItdExcessNm = 0.0;
+		RoutePoint CurveStart;
+		RoutePoint CurveEnd;
+		RoutePoint FirstTurnCenter;
+		RoutePoint FinalTurnCenter;
+		double RadiusNm = 0.0;
+		double InitialTrackRadians = 0.0;
+		double StraightTrackRadians = 0.0;
+		double FirstTurnRadians = 0.0;
+		double FinalTurnRadians = 0.0;
+		double StraightDistanceNm = 0.0;
+		int FirstTurnDirection = 1;
+		int FinalTurnDirection = 1;
 	};
+
+	inline RoutePoint RouteCurvePoint(const TurnRoute& route, double fraction)
+	{
+		if (fraction <= 0.0 || route.BeforeFinalNm == 0.0)
+			return route.CurveStart;
+		if (fraction >= 1.0)
+			return route.CurveEnd;
+		const double phase = fraction * 3.0;
+		if (phase < 1.0) {
+			const double heading = route.InitialTrackRadians + route.FirstTurnDirection * phase * route.FirstTurnRadians;
+			return { route.FirstTurnCenter.OutwardNm + route.FirstTurnDirection * route.RadiusNm * std::sin(heading),
+				route.FirstTurnCenter.CrossTrackNm - route.FirstTurnDirection * route.RadiusNm * std::cos(heading) };
+		}
+		const RoutePoint straightStart = {
+			route.FirstTurnCenter.OutwardNm + route.FirstTurnDirection * route.RadiusNm * std::sin(route.StraightTrackRadians),
+			route.FirstTurnCenter.CrossTrackNm - route.FirstTurnDirection * route.RadiusNm * std::cos(route.StraightTrackRadians) };
+		if (phase < 2.0)
+			return { straightStart.OutwardNm + (phase - 1.0) * route.StraightDistanceNm * std::cos(route.StraightTrackRadians),
+				straightStart.CrossTrackNm + (phase - 1.0) * route.StraightDistanceNm * std::sin(route.StraightTrackRadians) };
+		const double heading = route.StraightTrackRadians + route.FinalTurnDirection * (phase - 2.0) * route.FinalTurnRadians;
+		return { route.FinalTurnCenter.OutwardNm + route.FinalTurnDirection * route.RadiusNm * std::sin(heading),
+			route.FinalTurnCenter.CrossTrackNm - route.FinalTurnDirection * route.RadiusNm * std::cos(heading) };
+	}
 
 
 	inline double SignedAngle(double radians)
@@ -79,6 +122,63 @@ namespace TurningPointMath {
 		route.DirectDistanceNm = route.BeforeFinalNm;
 		route.TurnAngleRadians = route.BeforeFinalNm > 1.0e-9
 			? SignedAngle(std::atan2(-startCrossTrackNm, localizerPointNm - startOutwardNm) - relativeTrackRadians) : 0.0;
+		return true;
+	}
+
+	inline bool BuildCurvedRoute(double outwardNm, double crossTrackNm, double relativeTrackRadians,
+		double startDistanceNm, double localizerPointNm, TurnRoute& route, double groundSpeedKts = 180.0)
+	{
+		if (!BuildDirectRoute(outwardNm, crossTrackNm, relativeTrackRadians, startDistanceNm, localizerPointNm, route))
+			return false;
+		const double speedMetersPerSecond = (std::isfinite(groundSpeedKts) && groundSpeedKts > 0.0
+			? groundSpeedKts : 180.0) * 1852.0 / 3600.0;
+		route.RadiusNm = speedMetersPerSecond * speedMetersPerSecond / (9.80665 * std::tan(25.0 * Pi / 180.0)) / 1852.0;
+		route.InitialTrackRadians = relativeTrackRadians;
+		route.CurveStart = { outwardNm + startDistanceNm * std::cos(relativeTrackRadians),
+			crossTrackNm + startDistanceNm * std::sin(relativeTrackRadians) };
+		route.CurveEnd = { localizerPointNm, 0.0 };
+		if (route.DirectDistanceNm < 1.0e-9)
+			return true;
+		const auto positiveAngle = [](double angle) {
+			const double normalized = std::fmod(angle + 4.0 * Pi, 2.0 * Pi);
+			return normalized < 1.0e-9 || normalized > 2.0 * Pi - 1.0e-9 ? 0.0 : normalized;
+		};
+		double shortestNm = 1.0e100;
+		const double tieToleranceNm = std::abs(route.CurveStart.CrossTrackNm) < 0.1 &&
+			std::abs(std::sin(relativeTrackRadians)) < std::sin(5.0 * Pi / 180.0) ? 0.1 : 1.0e-8;
+		for (int firstDirection : { 1, -1 }) {
+			for (int finalDirection : { 1, -1 }) {
+				const RoutePoint firstCenter = {
+					route.CurveStart.OutwardNm - firstDirection * route.RadiusNm * std::sin(relativeTrackRadians),
+					route.CurveStart.CrossTrackNm + firstDirection * route.RadiusNm * std::cos(relativeTrackRadians) };
+				const RoutePoint finalCenter = { localizerPointNm, -finalDirection * route.RadiusNm };
+				const double deltaOutward = finalCenter.OutwardNm - firstCenter.OutwardNm;
+				const double deltaCross = finalCenter.CrossTrackNm - firstCenter.CrossTrackNm;
+				const double centersDistanceNm = std::hypot(deltaOutward, deltaCross);
+				const double offsetNm = (firstDirection - finalDirection) * route.RadiusNm;
+				if (centersDistanceNm < 1.0e-9 || centersDistanceNm < std::abs(offsetNm))
+					continue;
+				const double straightHeading = std::atan2(deltaCross, deltaOutward) + std::asin(offsetNm / centersDistanceNm);
+				const double firstAngle = positiveAngle(firstDirection * (straightHeading - relativeTrackRadians));
+				const double finalAngle = positiveAngle(finalDirection * (Pi - straightHeading));
+				const double straightNm = std::sqrt((std::max)(0.0,
+					centersDistanceNm * centersDistanceNm - offsetNm * offsetNm));
+				const double totalNm = route.RadiusNm * (firstAngle + finalAngle) + straightNm;
+				if (totalNm >= shortestNm - tieToleranceNm)
+					continue;
+				shortestNm = totalNm;
+				route.FirstTurnCenter = firstCenter;
+				route.FinalTurnCenter = finalCenter;
+				route.FirstTurnDirection = firstDirection;
+				route.FinalTurnDirection = finalDirection;
+				route.StraightTrackRadians = straightHeading;
+				route.FirstTurnRadians = firstAngle;
+				route.FinalTurnRadians = finalAngle;
+				route.StraightDistanceNm = straightNm;
+				route.TurnAngleRadians = firstDirection * firstAngle;
+			}
+		}
+		route.BeforeFinalNm = shortestNm;
 		return true;
 	}
 
@@ -138,10 +238,10 @@ namespace TurningPointMath {
 	}
 
 	inline bool BuildRoute(double outwardNm, double crossTrackNm, double relativeTrackRadians,
-		double, double startDistanceNm, double localizerPointNm, TurnRoute& route, bool clearedForApproach = false)
+		double groundSpeedKts, double startDistanceNm, double localizerPointNm, TurnRoute& route, bool clearedForApproach = false)
 	{
 		if (!clearedForApproach)
-			return BuildDirectRoute(outwardNm, crossTrackNm, relativeTrackRadians, startDistanceNm, localizerPointNm, route);
+			return BuildCurvedRoute(outwardNm, crossTrackNm, relativeTrackRadians, startDistanceNm, localizerPointNm, route, groundSpeedKts);
 		if (!BuildDirectRoute(outwardNm, crossTrackNm, relativeTrackRadians, startDistanceNm, 0.0, route))
 			return false;
 		route.FinalNm = route.BeforeFinalNm;

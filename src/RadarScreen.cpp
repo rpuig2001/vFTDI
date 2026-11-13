@@ -77,6 +77,16 @@ void DrawAircraftLocalizerRoute(CRadarScreen* screen, CDC& dc, CPosition aircraf
 				std::fmod(trackHeading + (route->StartDistanceNm < 0.0 ? 180.0 : 0.0), 360.0),
 				std::abs(route->StartDistanceNm) * 1852.0);
 			dc.LineTo(screen->ConvertCoordFromPositionToPixel(directStart));
+			const double outboundHeading = TrueBearingDegrees(runwayThreshold, joinPoint);
+			for (int segment = 1; segment < TurningPointMath::RouteCurveSegments; ++segment) {
+				const auto point = TurningPointMath::RouteCurvePoint(*route,
+					static_cast<double>(segment) / TurningPointMath::RouteCurveSegments);
+				const double bearing = outboundHeading + std::atan2(point.CrossTrackNm, point.OutwardNm) *
+					180.0 / TurningPointMath::Pi;
+				const CPosition curvePosition = SeparationMath::Extrapolate(runwayThreshold, bearing,
+					std::hypot(point.OutwardNm, point.CrossTrackNm) * 1852.0);
+				dc.LineTo(screen->ConvertCoordFromPositionToPixel(curvePosition));
+			}
 		}
 		dc.LineTo(screen->ConvertCoordFromPositionToPixel(joinPoint));
 	}

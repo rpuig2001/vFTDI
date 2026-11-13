@@ -27,9 +27,69 @@ int main()
 	Check(firstFollowerFtd == 16.0 && DownstreamReferenceNm(14.0, firstFollowerFtd) + 4.0 == 20.0,
 		"downstream FTD floor propagates through successive aircraft");
 	TurnRoute route;
-	Check(BuildRoute(12.0, 5.0, 0.0, 0.0, 0.0, 14.0, route), "geometry needs no groundspeed or bank radius");
-	Check(std::abs(route.BeforeFinalNm - std::hypot(2.0, 5.0)) < 1.0e-9 && route.FinalNm == 14.0,
-		"route length is direct to LOCALIZERPOINT plus final leg");
+	Check(BuildRoute(12.0, 5.0, 0.0, 0.0, 0.0, 14.0, route), "missing groundspeed uses a nominal turn radius");
+	Check(route.BeforeFinalNm > std::hypot(2.0, 5.0) && route.FinalNm == 14.0,
+		"turning adds distance before the final leg");
+	Check(RouteCurvePoint(route, 0.0).OutwardNm == 12.0 && RouteCurvePoint(route, 0.0).CrossTrackNm == 5.0 &&
+		RouteCurvePoint(route, 1.0).OutwardNm == 14.0 && RouteCurvePoint(route, 1.0).CrossTrackNm == 0.0,
+		"route curve connects the aircraft and LOCALIZERPOINT");
+	Check(route.RadiusNm > 0.0 && route.FirstTurnRadians < 2.0 * Pi && route.FinalTurnRadians < 2.0 * Pi,
+		"route uses finite circular turns");
+	const RoutePoint firstArcMiddle = RouteCurvePoint(route, 1.0 / 6.0);
+	Check(std::abs(std::hypot(firstArcMiddle.OutwardNm - route.FirstTurnCenter.OutwardNm,
+		firstArcMiddle.CrossTrackNm - route.FirstTurnCenter.CrossTrackNm) - route.RadiusNm) < 1.0e-9,
+		"initial turn follows its constant-radius circle");
+	const RoutePoint finalArcMiddle = RouteCurvePoint(route, 5.0 / 6.0);
+	Check(std::abs(std::hypot(finalArcMiddle.OutwardNm - route.FinalTurnCenter.OutwardNm,
+		finalArcMiddle.CrossTrackNm - route.FinalTurnCenter.CrossTrackNm) - route.RadiusNm) < 1.0e-9,
+		"final turn follows its constant-radius circle");
+	Check(std::abs(route.BeforeFinalNm - (route.RadiusNm * (route.FirstTurnRadians + route.FinalTurnRadians) +
+		route.StraightDistanceNm)) < 1.0e-9, "modeled distance includes exact arc and straight lengths");
+	TurnRoute fasterRoute;
+	Check(BuildRoute(12.0, 5.0, 0.0, 220.0, 0.0, 14.0, fasterRoute) &&
+		std::abs(fasterRoute.RadiusNm / route.RadiusNm - 220.0 * 220.0 / (180.0 * 180.0)) < 1.0e-9,
+		"faster groundspeed increases radius for the same nominal bank angle");
+	double sampledDistanceNm = 0.0;
+	RoutePoint previousPoint = RouteCurvePoint(route, 0.0);
+	for (int segment = 1; segment <= RouteCurveSegments; ++segment) {
+		const RoutePoint point = RouteCurvePoint(route, static_cast<double>(segment) / RouteCurveSegments);
+		sampledDistanceNm += std::hypot(point.OutwardNm - previousPoint.OutwardNm,
+			point.CrossTrackNm - previousPoint.CrossTrackNm);
+		previousPoint = point;
+	}
+	Check(sampledDistanceNm <= route.BeforeFinalNm + 1.0e-9 &&
+		route.BeforeFinalNm - sampledDistanceNm < 0.1,
+		"sampled drawing approximates the analytic arc lengths");
+	TurnRoute straightRoute;
+	Check(BuildRoute(20.0, 0.0, Pi, 0.0, 0.0, 14.0, straightRoute) &&
+		std::abs(straightRoute.BeforeFinalNm - 6.0) < 1.0e-9,
+		"an aircraft aligned with final adds no turn distance");
+	TurnRoute oppositeRoute;
+	Check(BuildRoute(20.0, 0.0, 0.0, 220.0, 0.0, 14.0, oppositeRoute) &&
+		std::abs(RouteCurvePoint(oppositeRoute, 0.5).CrossTrackNm) > 0.5 &&
+		oppositeRoute.BeforeFinalNm > oppositeRoute.DirectDistanceNm,
+		"opposite-direction aircraft turns visibly instead of retracing the same line");
+	Check(BuildRoute(10.0, 0.0, 0.0, 220.0, 0.0, 14.0, oppositeRoute) &&
+		std::abs(RouteCurvePoint(oppositeRoute, 0.5).CrossTrackNm) > 0.5 &&
+		oppositeRoute.BeforeFinalNm > oppositeRoute.DirectDistanceNm,
+		"opposite-direction join bends visibly before reversing onto final");
+	TurnRoute nearCenterline;
+	Check(BuildRoute(20.0, -0.02, 0.0, 220.0, 0.0, 14.0, nearCenterline) &&
+		RouteCurvePoint(nearCenterline, 0.5).CrossTrackNm > 0.5 &&
+		BuildRoute(20.0, 0.02, 0.0, 220.0, 0.0, 14.0, nearCenterline) &&
+		RouteCurvePoint(nearCenterline, 0.5).CrossTrackNm > 0.5,
+		"small centerline position changes do not flip the reversal turn");
+	for (int side : { -1, 1 }) {
+		TurnRoute longReversal;
+		Check(BuildRoute(-35.0, side * 20.0, 0.0, 220.0, 0.0, 14.0, longReversal),
+			"long opposite-side approach builds a route");
+		const RoutePoint lastSample = RouteCurvePoint(longReversal,
+			static_cast<double>(RouteCurveSegments - 1) / RouteCurveSegments);
+		const double finalSegmentAngle = std::atan2(std::abs(lastSample.CrossTrackNm),
+			lastSample.OutwardNm - 14.0);
+		Check(finalSegmentAngle < 10.0 * Pi / 180.0,
+			"drawn curve joins final inbound without a sharp reversal on either side");
+	}
 	Check(route.TurnAngleRadians < 0.0, "left direct-to-point direction");
 	const double unclearedDistanceNm = route.BeforeFinalNm + route.FinalNm;
 	TurnRoute clearedRoute;
@@ -41,11 +101,12 @@ int main()
 	TurnRoute differentLocalizer;
 	Check(BuildRoute(12.0, 5.0, 0.0, 220.0, 0.0, 25.0, differentLocalizer, true) &&
 		differentLocalizer.FinalNm == clearedRoute.FinalNm, "CA/VA route is independent of configured LOCALIZERPOINT distance");
-	Check(BuildRoute(12.0, 5.0, 0.0, 220.0, 0.0, 14.0, route) &&
+	Check(BuildRoute(12.0, 5.0, 0.0, 180.0, 0.0, 14.0, route) &&
 		std::abs(route.BeforeFinalNm + route.FinalNm - unclearedDistanceNm) < 1.0e-9,
 		"removing CA/VA restores route through LOCALIZERPOINT");
-	Check(BuildRoute(12.0, -5.0, 0.0, 350.0, 0.0, 14.0, route) && route.TurnAngleRadians > 0.0,
-		"right direct-to-point direction");
+	Check(BuildRoute(12.0, -5.0, 0.0, 180.0, 0.0, 14.0, route) && route.TurnAngleRadians > 0.0 &&
+		std::abs(route.BeforeFinalNm + route.FinalNm - unclearedDistanceNm) < 1.0e-9,
+		"opposite-side turn has mirrored geometry at the same groundspeed");
 	Check(BuildRoute(14.0, 0.0, 0.0, 0.0, 0.0, 14.0, route) && route.BeforeFinalNm == 0.0,
 		"at LOCALIZERPOINT route continues to runway");
 	Check(BuildRoute(14.0, 0.0, 0.0, 0.0, 0.0, 0.0, route) && route.FinalNm == 0.0,
@@ -61,7 +122,7 @@ int main()
 	TurnRoute earliest;
 	Check(FindEarliestItdTurnPoint(12.0, 5.0, 0.0, 18.0, speed, target, earliest), "earliest direct-to-point recommendation");
 	Check(std::abs(earliest.StartDistanceNm - 3.0) < 1.0e-5 && ItdDeliveryErrorNm(earliest, speed, target) >= 0.0,
-		"earliest point reaches required ITD spacing without arc assumptions");
+		"earliest point reaches required ITD spacing using the curved route");
 	ItdTarget largerTarget = target;
 	largerTarget.SlotDistanceNm += 2.0;
 	TurnRoute later;
@@ -102,8 +163,24 @@ int main()
 				"opposite and acute headings never reject direct route geometry");
 			const double expectedDistance = std::hypot(18.0 - 12.0 - 2.0 * std::cos(heading),
 				side * 5.0 + 2.0 * std::sin(heading));
-			Check(std::abs(route.BeforeFinalNm - expectedDistance) < 1.0e-9 && route.FinalNm == 18.0,
-				"all headings use the same two straight legs");
+			Check(route.BeforeFinalNm + 1.0e-9 >= expectedDistance && route.FinalNm == 18.0,
+				"curved route is at least as long as the direct route");
+			const RoutePoint firstStep = RouteCurvePoint(route, 1.0e-5);
+			if (route.FirstTurnRadians > 1.0e-6)
+				Check(std::abs(SignedAngle(std::atan2(firstStep.CrossTrackNm - route.CurveStart.CrossTrackNm,
+					firstStep.OutwardNm - route.CurveStart.OutwardNm) - heading)) < 0.001,
+					"initial arc starts tangent to the aircraft track");
+			const RoutePoint lastStep = RouteCurvePoint(route, 1.0 - 1.0e-5);
+			if (route.FinalTurnRadians > 1.0e-6)
+				Check(std::abs(SignedAngle(std::atan2(-lastStep.CrossTrackNm,
+					18.0 - lastStep.OutwardNm) - Pi)) < 0.001,
+					"final arc ends tangent to the inbound localizer");
+			for (double boundary : { 1.0 / 3.0, 2.0 / 3.0 }) {
+				const RoutePoint before = RouteCurvePoint(route, boundary - 1.0e-7);
+				const RoutePoint after = RouteCurvePoint(route, boundary + 1.0e-7);
+				Check(std::hypot(after.OutwardNm - before.OutwardNm, after.CrossTrackNm - before.CrossTrackNm) < 0.001,
+					"arc and straight segments connect without gaps");
+			}
 			++checkedRoutes;
 		}
 	}
@@ -111,6 +188,6 @@ int main()
 	Check(std::abs(TimeToThresholdHours(10.0, 15.0, phases) -
 		(5.0 / 220.0 + 5.0 / 180.0 + 10.0 / 170.0 + 5.0 / 130.0)) < 1.0e-9, "configured speed phases remain unchanged");
 	Check(DistanceFlownNm(10.0, 15.0, phases, 10.0) == 25.0, "leader movement stops at threshold");
-	std::cout << "All direct-route, chevron-reference, earliest ITD, and speed-phase checks passed across "
+	std::cout << "All curved-route, chevron-reference, earliest ITD, and speed-phase checks passed across "
 		<< checkedRoutes << " heading/side combinations.\n";
 }
