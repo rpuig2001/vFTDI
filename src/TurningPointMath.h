@@ -22,6 +22,16 @@ namespace TurningPointMath {
 		return referenceNm + (std::max)(0.0, spacingNm);
 	}
 
+	inline double LongitudinalComponentForDirectDistanceNm(double directDistanceNm, double crossTrackNm)
+	{
+		if (!std::isfinite(directDistanceNm) || !std::isfinite(crossTrackNm) || directDistanceNm <= 0.0)
+			return 0.0;
+		const double lateralDistanceNm = std::abs(crossTrackNm);
+		if (lateralDistanceNm >= directDistanceNm)
+			return 0.0;
+		return std::sqrt(directDistanceNm * directDistanceNm - lateralDistanceNm * lateralDistanceNm);
+	}
+
 	inline double DownstreamReferenceNm(double expectedAlongLocalizerNm, double ftdAlongLocalizerNm,
 		bool clearedForApproach = false)
 	{

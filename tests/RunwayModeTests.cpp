@@ -137,7 +137,7 @@ int main(int argumentCount, char** arguments)
 	Check(boundedProfiles.getDefaultProfile() == "F", "configured profile default");
 	{
 		std::ofstream output(path);
-		output << "[wake]\nscheme = WTC\nH_H = 4\nH_M = 5\n";
+		output << "[separation]\nscheme = WTC\n[wake]\nH_H = 4\nH_M = 5\n";
 		output << "[recat]\nA = A388,A124\nD = A320\nF = E145\nC = B763\nB = B744\n";
 	}
 	CCallsignLookup wtc(path);
@@ -146,7 +146,7 @@ int main(int argumentCount, char** arguments)
 		wakeDistanceNm == 4.0, "WTC is the default selectable scheme");
 	{
 		std::ofstream output(path);
-		output << "[wake]\nscheme = recat-eu\nH_H = 4\nH_M = 5\n";
+		output << "[separation]\nscheme = recat-eu\n[wake]\nH_H = 4\nH_M = 5\n";
 		output << "[recat]\nA = A388,A124\nD = A320\nF = E145\nC = B763\nB = B744\n";
 		output << "[recat.separation]\nA_D = 4.5\n";
 	}
@@ -180,7 +180,7 @@ int main(int argumentCount, char** arguments)
 			wakeDistanceNm == 4.0, "Release starts with WTC wake minima");
 		{
 			std::ofstream output(path);
-			output << "[wake]\nscheme = RECAT-EU\n";
+			output << "[separation]\nscheme = RECAT-EU\n";
 		}
 		double course = 0.0;
 		Check(release.getLocalizerCourseDegrees("EDDF", "25L", course) && course == 249.0,

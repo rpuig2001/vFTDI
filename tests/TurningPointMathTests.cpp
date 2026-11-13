@@ -14,6 +14,11 @@ void Check(bool condition, const char* message)
 int main()
 {
 	using namespace TurningPointMath;
+	const double dependentAlongTrackNm = LongitudinalComponentForDirectDistanceNm(5.0, 3.0);
+	Check(std::abs(std::hypot(dependentAlongTrackNm, 3.0) - 5.0) < 1.0e-9,
+		"parallel dependent target uses the configured direct distance");
+	Check(LongitudinalComponentForDirectDistanceNm(5.0, 6.0) == 0.0,
+		"cross-track distance alone can satisfy a smaller direct separation minimum");
 	Check(MarkerDistanceNm(10.0, 10.0, 12.0, 1.5) == 13.5, "FTD stays behind stagger-corrected leader");
 	Check(MarkerDistanceNm(16.0, 12.0, 12.0, 4.0) == 20.0, "longer modeled route remains target reference");
 	Check(MarkerDistanceNm(10.0, 10.0, 12.0, 6.0) >= MarkerDistanceNm(10.0, 10.0, 12.0, 4.0),

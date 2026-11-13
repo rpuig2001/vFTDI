@@ -751,6 +751,8 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 			measurement.ParallelDependent = pairMode == CCallsignLookup::RunwayPairMode::Dependant;
 			measurement.ParallelIndependent = pairMode == CCallsignLookup::RunwayPairMode::Independent;
 		}
+		if (measurement.ParallelDependent)
+			actualNm = directDistanceNm;
 		if (previouslyDependent != measurement.ParallelDependent ||
 			previouslyIndependent != measurement.ParallelIndependent)
 			measurement.PlanningTurnTiming.Reset();
@@ -852,7 +854,7 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 			++measurementIt;
 			continue;
 		}
-		if (hasPrecedingRoute && hasSucceedingRoute) {
+		if (!measurement.ParallelDependent && hasPrecedingRoute && hasSucceedingRoute) {
 			const double precedingRemainingRouteNm = precedingDistanceToJoinNm + precedingJoinToThresholdNm;
 			const double succeedingRemainingRouteNm = succeedingDistanceToJoinNm + succeedingJoinToThresholdNm;
 			const double ownOutwardHeading = TrueBearingDegrees(precedingRunwayThreshold, precedingJoinPoint);
@@ -906,6 +908,20 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 			finalTargetNm = measurement.GapNm;
 		const double initialTargetNm = finalTargetNm + compressionNm;
 		const double requiredNm = initialTargetNm;
+		double requiredTrackOffsetNm = requiredNm;
+		double finalTargetTrackOffsetNm = finalTargetNm;
+		if (measurement.ParallelDependent && hasSucceedingRoute) {
+			const double outboundHeading = TrueBearingDegrees(succeedingRunwayThreshold, succeedingJoinPoint);
+			const double relativeBearingRadians = SignedAngleDifference(
+				TrueBearingDegrees(succeedingRunwayThreshold, precedingPosition) - outboundHeading) *
+				3.14159265358979323846 / 180.0;
+			const double crossTrackNm = succeedingRunwayThreshold.DistanceTo(precedingPosition) *
+				std::sin(relativeBearingRadians);
+			requiredTrackOffsetNm = TurningPointMath::LongitudinalComponentForDirectDistanceNm(
+				requiredNm, crossTrackNm);
+			finalTargetTrackOffsetNm = TurningPointMath::LongitudinalComponentForDirectDistanceNm(
+				finalTargetNm, crossTrackNm);
+		}
 		measurement.CurrentFTDNm = finalTargetNm;
 		measurement.CurrentITDNm = initialTargetNm;
 		measurement.CurrentCompressionNm = compressionNm;
@@ -936,9 +952,11 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 				TrueBearingDegrees(precedingRunwayThreshold, precedingJoinPoint)) * TurningPointMath::Pi / 180.0;
 			const double leaderAlongOwnLocalizerNm = precedingRunwayThreshold.DistanceTo(precedingPosition) * std::cos(ownBearingRadians);
 			markerPosition = SeparationMath::Extrapolate(succeedingRunwayThreshold,
-				outboundHeading, TurningPointMath::MarkerDistanceNm(remainingNm, leaderAlongOwnLocalizerNm, leaderAlongLocalizerNm, requiredNm) * 1852.0);
+				outboundHeading, TurningPointMath::MarkerDistanceNm(remainingNm, leaderAlongOwnLocalizerNm,
+					leaderAlongLocalizerNm, requiredTrackOffsetNm) * 1852.0);
 			finalMarkerPosition = SeparationMath::Extrapolate(succeedingRunwayThreshold,
-				outboundHeading, TurningPointMath::MarkerDistanceNm(remainingNm, leaderAlongOwnLocalizerNm, leaderAlongLocalizerNm, finalTargetNm) * 1852.0);
+				outboundHeading, TurningPointMath::MarkerDistanceNm(remainingNm, leaderAlongOwnLocalizerNm,
+					leaderAlongLocalizerNm, finalTargetTrackOffsetNm) * 1852.0);
 			precedingTrackPosition = SeparationMath::Extrapolate(markerPosition,
 				std::fmod(outboundHeading + 180.0, 360.0), 1852.0);
 			finalTrackPosition = SeparationMath::Extrapolate(finalMarkerPosition,
@@ -951,14 +969,14 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 			if (destination != nullptr && arrivalRunway != nullptr && arrivalRunway[0] != '\0')
 				hasLocalizerMarkerPosition = FindLocalizerMarkerPosition(GetPlugIn(),
 					destination == nullptr ? "" : destination, arrivalRunway,
-					precedingPosition, preceding.GetTrackHeading(), requiredNm,
+					precedingPosition, preceding.GetTrackHeading(), requiredTrackOffsetNm,
 					markerPosition, precedingTrackPosition, localizerJoinPoint, runwayThreshold);
 			if (destination != nullptr && arrivalRunway != nullptr && arrivalRunway[0] != '\0') {
 				CPosition finalJoinPoint;
 				CPosition finalThreshold;
 				hasFinalTargetMarkerPosition = FindLocalizerMarkerPosition(GetPlugIn(),
 					destination, arrivalRunway,
-					precedingPosition, preceding.GetTrackHeading(), finalTargetNm,
+						precedingPosition, preceding.GetTrackHeading(), finalTargetTrackOffsetNm,
 					finalMarkerPosition, finalTrackPosition, finalJoinPoint, finalThreshold);
 			}
 		}
@@ -991,7 +1009,7 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 				const double markerRelativeBearing =
 					SignedAngleDifference(markerBearing - outboundHeading) * 3.14159265358979323846 / 180.0;
 				const double markerAlongLocalizerNm = markerDistanceNm * std::cos(markerRelativeBearing);
-				const double minimumSlotDistanceNm = upstreamReferenceAlongLocalizerNm + requiredNm;
+				const double minimumSlotDistanceNm = upstreamReferenceAlongLocalizerNm + requiredTrackOffsetNm;
 				if (markerAlongLocalizerNm < minimumSlotDistanceNm) {
 					markerPosition = SeparationMath::Extrapolate(
 						runwayThreshold, outboundHeading, minimumSlotDistanceNm * 1852.0);
@@ -1005,7 +1023,7 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 						SignedAngleDifference(finalMarkerBearing - outboundHeading) * 3.14159265358979323846 / 180.0;
 					const double finalMarkerAlongLocalizerNm =
 						finalMarkerDistanceNm * std::cos(finalMarkerRelativeBearing);
-					const double minimumFinalSlotDistanceNm = upstreamReferenceAlongLocalizerNm + finalTargetNm;
+					const double minimumFinalSlotDistanceNm = upstreamReferenceAlongLocalizerNm + finalTargetTrackOffsetNm;
 					if (finalMarkerAlongLocalizerNm < minimumFinalSlotDistanceNm)
 						finalMarkerPosition = SeparationMath::Extrapolate(
 							runwayThreshold, outboundHeading, minimumFinalSlotDistanceNm * 1852.0);
@@ -1268,7 +1286,6 @@ void RadarScreen::SynchronizeSequenceMeasurements()
 			continue;
 
 		const CFlightPlanData precedingData = precedingPlan.GetFlightPlanData();
-		const CFlightPlanData succeedingData = succeedingPlan.GetFlightPlanData();
 		const char precedingWake = precedingData.GetAircraftWtc();
 		const char succeedingWake = succeedingData.GetAircraftWtc();
 		const char* precedingAircraftInfo = precedingData.GetAircraftInfo();

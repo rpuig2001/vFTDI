@@ -104,12 +104,11 @@ std::string IniDirective(const std::string& section, const std::string& key)
 	if (section == "AIRPORTS" && normalizedKey == "CODES")
 		return "AIRPORTS";
 	if (section == "SEPARATION") {
+		if (normalizedKey == "SCHEME") return "SEPARATIONSCHEME";
 		if (normalizedKey == "MINIMUMDISTANCENM") return "MINDIST";
 		if (normalizedKey == "MINIMUMPARALLELDEPENDENTDISTANCENM") return "MINPARALLELDEPENDENTDISTANCE";
 		if (normalizedKey == "FINALBUFFERNM") return "FINALBUFFER";
 	}
-	if (section == "WAKE" && normalizedKey == "SCHEME")
-		return "WAKESCHEME";
 	if (section == "WAKE")
 		return "WTC_" + normalizedKey;
 	if (section == "RECAT")
@@ -198,7 +197,7 @@ CCallsignLookup::CCallsignLookup(const std::string& fileName)
 				requestedDefaultProfile = UppercaseIdentifier(requestedDefaultProfile);
 			continue;
 		}
-		if (key == "WAKESCHEME") {
+		if (key == "SEPARATIONSCHEME") {
 			std::string value;
 			if (parser >> value) {
 				value = UppercaseIdentifier(value);
