@@ -65,12 +65,12 @@ int main(int argumentCount, char** arguments)
 	}
 	if (!MoveSequenceRelative(sequence, "DELTA", "CHARLIE", true) ||
 		sequence != std::vector<std::string>({ "ALPHA", "CHARLIE", "DELTA", "BRAVO" })) {
-		std::cerr << "FAIL: moving below a selected row should insert immediately after it\n";
+		std::cerr << "FAIL: moving after a selected row should insert immediately after it\n";
 		return 1;
 	}
 	if (!MoveSequenceRelative(sequence, "BRAVO", "ALPHA", false) ||
 		sequence != std::vector<std::string>({ "BRAVO", "ALPHA", "CHARLIE", "DELTA" })) {
-		std::cerr << "FAIL: moving above a selected row should insert immediately before it\n";
+		std::cerr << "FAIL: moving before a selected row should insert immediately before it\n";
 		return 1;
 	}
 	if (MoveSequenceRelative(sequence, "ALPHA", "BRAVO", true) ||

@@ -333,8 +333,8 @@ bool HandleFTDiPanelButton(
 					const std::string title = "POSITION " + session.PendingSequenceMoveCallsign +
 						" RELATIVE TO " + rowCallsign;
 					plugIn->OpenPopupList(area, title.c_str(), 1);
-					const std::string above = "Above " + rowCallsign;
-					const std::string below = "Below " + rowCallsign;
+					const std::string above = "Before " + rowCallsign;
+					const std::string below = "After " + rowCallsign;
 					plugIn->AddPopupListElement(above.c_str(), "", FUNCTION_SEQUENCE_MOVE_ABOVE);
 					plugIn->AddPopupListElement(below.c_str(), "", FUNCTION_SEQUENCE_MOVE_BELOW);
 				}

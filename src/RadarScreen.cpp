@@ -93,6 +93,21 @@ void DrawAircraftLocalizerRoute(CRadarScreen* screen, CDC& dc, CPosition aircraf
 	dc.LineTo(screen->ConvertCoordFromPositionToPixel(runwayThreshold));
 }
 
+void DrawExpectedRoutePosition(CRadarScreen* screen, CDC& dc, CPosition position)
+{
+	const POINT pixel = screen->ConvertCoordFromPositionToPixel(position);
+	const int savedState = dc.SaveDC();
+	const COLORREF color = RGB(255, 165, 0);
+	CPen markerPen(PS_SOLID, 2, color);
+	dc.SelectObject(&markerPen);
+	dc.MoveTo(pixel.x, pixel.y - 5);
+	dc.LineTo(pixel.x + 5, pixel.y);
+	dc.LineTo(pixel.x, pixel.y + 5);
+	dc.LineTo(pixel.x - 5, pixel.y);
+	dc.LineTo(pixel.x, pixel.y - 5);
+	dc.RestoreDC(savedState);
+}
+
 double MinimumDistanceNm()
 {
 	return CCallsignLookup::Available && CCallsignLookup::Lookup != nullptr
@@ -602,7 +617,26 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 	const int minimumAltitude = MinimumAltitudeFeet();
 	for (auto aircraft = Session->ArrivalSequence.begin(); aircraft != Session->ArrivalSequence.end();) {
 		const CRadarTarget target = GetPlugIn()->RadarTargetSelect(aircraft->c_str());
-		if (target.IsValid() && target.GetPosition().GetPressureAltitude() < minimumAltitude) {
+		if (!target.IsValid() || target.GetPosition().GetPressureAltitude() < minimumAltitude) {
+			const std::string callsign = *aircraft;
+			Session->FinalApproachSpeedOverridesKts.erase(callsign);
+			Session->PlanningMotion.erase(callsign);
+			if (Session->SelectedSequenceCallsign == callsign)
+				Session->SelectedSequenceCallsign.clear();
+			if (Session->RightClickedSequenceCallsign == callsign)
+				Session->RightClickedSequenceCallsign.clear();
+			if (Session->RoutePreviewCallsign == callsign)
+				Session->RoutePreviewCallsign.clear();
+			if (Session->PendingSequenceMoveCallsign == callsign)
+				Session->PendingSequenceMoveCallsign.clear();
+			if (Session->PendingSequenceMoveTargetCallsign == callsign)
+				Session->PendingSequenceMoveTargetCallsign.clear();
+			if (Session->PendingFinalApproachSpeedCallsign == callsign)
+				Session->PendingFinalApproachSpeedCallsign.clear();
+			if (Session->PendingGapPrecedingCallsign == callsign || Session->PendingGapSucceedingCallsign == callsign) {
+				Session->PendingGapPrecedingCallsign.clear();
+				Session->PendingGapSucceedingCallsign.clear();
+			}
 			aircraft = Session->ArrivalSequence.erase(aircraft);
 			Session->SequenceDirty = true;
 		}
@@ -696,6 +730,12 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 					DrawAircraftLocalizerRoute(this, dc, aircraftPosition, firstAircraft.GetTrackHeading(),
 						joinPoint, runwayThreshold, passedJoin || clearedForApproach, hasTurnRoute ? &route : nullptr);
 					dc.RestoreDC(routeState);
+					const double remainingNm = hasTurnRoute ? route.BeforeFinalNm + route.FinalNm
+						: (passedJoin || clearedForApproach ? aircraftPosition.DistanceTo(runwayThreshold)
+							: aircraftPosition.DistanceTo(joinPoint) + joinPoint.DistanceTo(runwayThreshold));
+					const CPosition expectedPosition = SeparationMath::Extrapolate(runwayThreshold,
+						TrueBearingDegrees(runwayThreshold, joinPoint), (std::max)(0.0, remainingNm) * 1852.0);
+					DrawExpectedRoutePosition(this, dc, expectedPosition);
 				}
 			}
 		}
@@ -840,6 +880,9 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 				TrueBearingDegrees(succeedingRunwayThreshold, succeedingJoinPoint),
 				(std::max)(0.0, remainingNm) * 1852.0);
 			measurement.HasExpectedRoutePosition = true;
+			if (showLocalizerRoute || Session->RoutePreviewCallsign == measurement.SucceedingCallsign ||
+				Session->RightClickedSequenceCallsign == measurement.SucceedingCallsign)
+				DrawExpectedRoutePosition(this, dc, measurement.ExpectedRoutePosition);
 		}
 		if (measurement.ParallelIndependent) {
 			measurement.TurnStatus = "INDEPENDENT";

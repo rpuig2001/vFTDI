@@ -197,8 +197,8 @@ void VFTDIPlugin::OnFunctionCall(int FunctionId, const char* sItemString, POINT 
         Session->PendingSequenceMoveTargetCallsign = callsign;
         const std::string title = "POSITION " + Session->PendingSequenceMoveCallsign + " RELATIVE TO " + callsign;
         OpenPopupList(Area, title.c_str(), 1);
-        const std::string above = "Above " + callsign;
-        const std::string below = "Below " + callsign;
+        const std::string above = "Before " + callsign;
+        const std::string below = "After " + callsign;
         AddPopupListElement(above.c_str(), "", FUNCTION_SEQUENCE_MOVE_ABOVE);
         AddPopupListElement(below.c_str(), "", FUNCTION_SEQUENCE_MOVE_BELOW);
         AddPopupListElement("Cancel move", "", FUNCTION_SEQUENCE_MOVE_CANCEL);
