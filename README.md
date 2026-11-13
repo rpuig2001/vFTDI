@@ -28,6 +28,14 @@ The radar manager is 228 px wide in both collapsed and expanded states and uses 
 - Enter `SHOWLOCALIZERROUTE` or `.SHOWLOCALIZERROUTE` to toggle route display.
 - Select the `TURN` checkbox in the expanded vFTDI manager or the separate vFTDI view to enable or disable turn recommendations on the radar. It defaults to off for each plugin session; panel statuses remain available either way. The current-track leg to the dot, curved leg to LOCALIZERPOINT, and final leg to the runway are shown when routes are enabled.
 
+### Sequence TAG Item
+
+In EuroScope's TAG editor, add the vFTDI `Sequence Number` item and bind its desired mouse action to vFTDI `Sequence Move/Pick`. The item displays only the aircraft's current one-based sequence number, in dark orange, with at least two digits (`01`, `02`, ..., `10`, ..., `100`); aircraft outside the vFTDI sequence have a blank item. Numbers update from the shared sequence after reordering.
+
+Click the source aircraft's number to pick it for moving, then click another aircraft's number and choose **Above** or **Below**. Clicking the picked source again cancels. The popup also offers **Cancel move**, and `Cancel Sequence Move` is available as a separate bindable TAG action. The picked source is shared with the panel's MOVE/PICK controls, so TAG and panel actions can be combined. Picking a source does not change the TAG's number or color.
+
+The color is configurable under `[colors]` as `TAG_SEQUENCE_NUMBER = 205, 100, 0`. Reload the plugin after changing the color or installing the updated DLL; adding the item and binding its mouse action are EuroScope TAG-layout settings.
+
 ## Downstream Targets
 
 Each aircraft's expected route position is its modeled remaining-route distance mapped onto its assigned localizer. It uses the curved leg to LOCALIZERPOINT plus the final leg, including the added curve distance. Before approach clearance, the reference for spacing the next aircraft is whichever is farther behind on the localizer: this expected position or the aircraft's own FTD target. Here, farther behind means a larger distance from the runway threshold. An uncleared aircraft's expected position ahead of FTD therefore cannot pull downstream targets forward; one behind FTD pushes them back.
@@ -158,6 +166,7 @@ All colors drawn by vFTDI are configurable in the DLL's `config.ini` under `[col
 | `PANEL_REMOVE_BACKGROUND` / `PANEL_REMOVE_TEXT` | Remove button background and text |
 | `PANEL_STATUS_WARNING` | Passed-turn and unavailable-prediction status text |
 | `PANEL_WAKE_L` / `PANEL_WAKE_M` / `PANEL_WAKE_H` / `PANEL_WAKE_S` | Light, Medium, Heavy, and Super wake-category badge backgrounds |
+| `TAG_SEQUENCE_NUMBER` | Sequence-number TAG text (dark orange by default) |
 
 EuroScope-owned popup menus and native screen-object tooltips remain controlled by EuroScope and Windows, not by these plugin settings.
 

@@ -24,18 +24,23 @@ int main(int argumentCount, char** arguments)
 		return 1;
 	const char* path = arguments[1];
 	CheckRows(path, "", 3);
-	CheckRows(path, "#DEFAULTROWS 6\n", 6);
-	CheckRows(path, "#DEFAULTROWS 1\n", 1);
-	CheckRows(path, "#DEFAULTROWS 12\n", 12);
-	CheckRows(path, "#DEFAULTROWS 0\n", 1);
-	CheckRows(path, "#DEFAULTROWS -5\n", 1);
-	CheckRows(path, "#DEFAULTROWS 100\n", 100);
-	CheckRows(path, "#DEFAULTROWS 999\n", 999);
-	CheckRows(path, "#DEFAULTROWS invalid\n", 3);
-	CheckRows(path, "#DEFAULTROWS 6\n#DEFAULTROWS invalid\n", 6);
-	CheckRows(path, "#DEFAULTROWS 6\n#DEFAULTROWS 8\n", 8);
-	CheckRows(path, "#DEFAULTROWS 999999999999999999999\n", 3);
+	CheckRows(path, "[general]\ndefaultRows = 6\n", 6);
+	CheckRows(path, "[general]\ndefaultRows = 1\n", 1);
+	CheckRows(path, "[general]\ndefaultRows = 12\n", 12);
+	CheckRows(path, "[general]\ndefaultRows = 0\n", 1);
+	CheckRows(path, "[general]\ndefaultRows = -5\n", 1);
+	CheckRows(path, "[general]\ndefaultRows = 100\n", 100);
+	CheckRows(path, "[general]\ndefaultRows = 999\n", 999);
+	CheckRows(path, "[general]\ndefaultRows = invalid\n", 3);
+	CheckRows(path, "[general]\ndefaultRows = 6\ndefaultRows = invalid\n", 6);
+	CheckRows(path, "[general]\ndefaultRows = 6\ndefaultRows = 8\n", 8);
+	CheckRows(path, "[general]\ndefaultRows = 999999999999999999999\n", 3);
 	std::vector<std::string> sequence = { "ALPHA", "BRAVO", "CHARLIE", "DELTA" };
+	if (SequenceNumber(sequence, "ALPHA") != 1 || SequenceNumber(sequence, "DELTA") != 4 ||
+		SequenceNumber(sequence, "MISSING") != 0 || SequenceNumber({}, "ALPHA") != 0) {
+		std::cerr << "FAIL: sequence numbers must be one-based and absent flights must have no number\n";
+		return 1;
+	}
 	if (!MoveSequenceAircraft(sequence, "DELTA", "BRAVO") ||
 		sequence != std::vector<std::string>({ "ALPHA", "DELTA", "BRAVO", "CHARLIE" })) {
 		std::cerr << "FAIL: moving an aircraft earlier should place it before the chosen callsign\n";
@@ -74,6 +79,10 @@ int main(int argumentCount, char** arguments)
 		std::cerr << "FAIL: adjacent and stale relative moves should not reorder the sequence\n";
 		return 1;
 	}
+	if (SequenceNumber(sequence, "BRAVO") != 1 || SequenceNumber(sequence, "DELTA") != 4) {
+		std::cerr << "FAIL: sequence numbers must reflect the current order after moves\n";
+		return 1;
+	}
 	if (argumentCount == 3) {
 		CCallsignLookup release(arguments[2]);
 		if (release.getDefaultVisibleRows() != 999) {
@@ -82,5 +91,5 @@ int main(int argumentCount, char** arguments)
 		}
 	}
 	std::remove(path);
-	std::cout << "Panel row-count parsing and relative sequence-move checks passed.\n";
+	std::cout << "Panel row-count parsing, sequence numbering, and relative sequence-move checks passed.\n";
 }

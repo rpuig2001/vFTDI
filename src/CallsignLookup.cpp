@@ -532,7 +532,8 @@ CCallsignLookup::RgbColor CCallsignLookup::getDefaultColor(const std::string& ke
 		{ "COLOR_PANEL_WAKE_L", { 38, 105, 73 } },
 		{ "COLOR_PANEL_WAKE_M", { 45, 99, 150 } },
 		{ "COLOR_PANEL_WAKE_H", { 245, 179, 45 } },
-		{ "COLOR_PANEL_WAKE_S", { 183, 43, 53 } }
+		{ "COLOR_PANEL_WAKE_S", { 183, 43, 53 } },
+		{ "COLOR_TAG_SEQUENCE_NUMBER", { 205, 100, 0 } }
 	};
 	if (key == "COLOR_FTD_ROUTE")
 		return getDefaultColor("COLOR_FTD_TARGET");

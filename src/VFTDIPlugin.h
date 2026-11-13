@@ -21,6 +21,8 @@ public:
 
 	CRadarScreen * OnRadarScreenCreated(const char * sDisplayName, bool NeedRadarContent, bool GeoReferenced, bool CanBeSaved, bool CanBeCreated);
 	bool OnCompileCommand(const char * sCommandLine) override;
+	void OnGetTagItem(CFlightPlan FlightPlan, CRadarTarget RadarTarget, int ItemCode, int TagData,
+		char sItemString[16], int* pColorCode, COLORREF* pRGB, double* pFontSize) override;
 	void OnFunctionCall(int FunctionId, const char* sItemString, POINT Pt, RECT Area) override;
 
 protected:

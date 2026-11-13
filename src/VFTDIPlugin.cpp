@@ -2,11 +2,13 @@
 #include "VFTDIPlugin.h"
 #include "CallsignLookup.h"
 #include "FTDiPanel.h"
+#include "DisplayColors.h"
 #include <algorithm>
 #include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <cstdio>
 #include <sstream>
 
 std::atomic<bool> SequenceAddRequested{ false };
@@ -129,9 +131,63 @@ bool VFTDIPlugin::OnCompileCommand(const char * sCommandLine)
     return true;
 }
 
+void VFTDIPlugin::OnGetTagItem(CFlightPlan FlightPlan, CRadarTarget RadarTarget, int ItemCode, int TagData,
+    char sItemString[16], int* pColorCode, COLORREF* pRGB, double* pFontSize)
+{
+    UNREFERENCED_PARAMETER(TagData);
+    UNREFERENCED_PARAMETER(pFontSize);
+    if (ItemCode != TAG_ITEM_SEQUENCE_NUMBER)
+        return;
+    sItemString[0] = '\0';
+    *pColorCode = TAG_COLOR_RGB_DEFINED;
+    *pRGB = ConfiguredColor("COLOR_TAG_SEQUENCE_NUMBER");
+    const char* callsign = FlightPlan.IsValid() ? FlightPlan.GetCallsign()
+        : (RadarTarget.IsValid() ? RadarTarget.GetCallsign() : nullptr);
+    if (callsign == nullptr)
+        return;
+    const size_t number = SequenceNumber(Session->ArrivalSequence, callsign);
+    if (number != 0)
+        std::snprintf(sItemString, 16, "%02zu", number);
+}
+
 void VFTDIPlugin::OnFunctionCall(int FunctionId, const char* sItemString, POINT Pt, RECT Area)
 {
     UNREFERENCED_PARAMETER(Pt);
+    if (FunctionId == FUNCTION_SEQUENCE_MOVE_CANCEL) {
+        Session->PendingSequenceMoveCallsign.clear();
+        Session->PendingSequenceMoveTargetCallsign.clear();
+        return;
+    }
+    if (FunctionId == FUNCTION_SEQUENCE_TAG_MOVE_PICK) {
+        const CFlightPlan flightPlan = FlightPlanSelectASEL();
+        const CRadarTarget radarTarget = RadarTargetSelectASEL();
+        const char* selectedCallsign = flightPlan.IsValid() ? flightPlan.GetCallsign()
+            : (radarTarget.IsValid() ? radarTarget.GetCallsign() : nullptr);
+        if (selectedCallsign == nullptr || SequenceNumber(Session->ArrivalSequence, selectedCallsign) == 0)
+            return;
+        const std::string callsign(selectedCallsign);
+        if (Session->PendingSequenceMoveCallsign == callsign) {
+            Session->PendingSequenceMoveCallsign.clear();
+            Session->PendingSequenceMoveTargetCallsign.clear();
+            return;
+        }
+        if (SequenceNumber(Session->ArrivalSequence, Session->PendingSequenceMoveCallsign) == 0) {
+            Session->PendingSequenceMoveCallsign = callsign;
+            Session->PendingSequenceMoveTargetCallsign.clear();
+            const std::string message = "Move " + callsign + ": click another sequence number or panel row to choose its position";
+            DisplayUserMessage(PLUGIN_NAME.c_str(), "Sequence", message.c_str(), true, false, false, false, false);
+            return;
+        }
+        Session->PendingSequenceMoveTargetCallsign = callsign;
+        const std::string title = "POSITION " + Session->PendingSequenceMoveCallsign + " RELATIVE TO " + callsign;
+        OpenPopupList(Area, title.c_str(), 1);
+        const std::string above = "Above " + callsign;
+        const std::string below = "Below " + callsign;
+        AddPopupListElement(above.c_str(), "", FUNCTION_SEQUENCE_MOVE_ABOVE);
+        AddPopupListElement(below.c_str(), "", FUNCTION_SEQUENCE_MOVE_BELOW);
+        AddPopupListElement("Cancel move", "", FUNCTION_SEQUENCE_MOVE_CANCEL);
+        return;
+    }
     if (FunctionId == FUNCTION_SEQUENCE_MOVE_ABOVE || FunctionId == FUNCTION_SEQUENCE_MOVE_BELOW) {
         if (MoveSequenceRelative(Session->ArrivalSequence, Session->PendingSequenceMoveCallsign,
             Session->PendingSequenceMoveTargetCallsign, FunctionId == FUNCTION_SEQUENCE_MOVE_BELOW))
@@ -221,4 +277,7 @@ void VFTDIPlugin::OnFunctionCall(int FunctionId, const char* sItemString, POINT 
 void VFTDIPlugin::RegisterPlugin() {
     RegisterDisplayType(VFTDI_RADAR_SCREEN_VIEW, true, true, true, true);
     RegisterDisplayType(VFTDI_PANEL_SCREEN_VIEW, false, false, true, true);
+    RegisterTagItemType("Sequence Number", TAG_ITEM_SEQUENCE_NUMBER);
+    RegisterTagItemFunction("Sequence Move/Pick", FUNCTION_SEQUENCE_TAG_MOVE_PICK);
+    RegisterTagItemFunction("Cancel Sequence Move", FUNCTION_SEQUENCE_MOVE_CANCEL);
 }

@@ -4,6 +4,12 @@
 #include <string>
 #include <vector>
 
+inline size_t SequenceNumber(const std::vector<std::string>& sequence, const std::string& callsign)
+{
+	const auto aircraft = std::find(sequence.begin(), sequence.end(), callsign);
+	return aircraft == sequence.end() ? 0 : static_cast<size_t>(aircraft - sequence.begin()) + 1;
+}
+
 template <typename IsEligible>
 inline size_t FindSequencePredecessor(size_t index, IsEligible isEligible)
 {
