@@ -29,6 +29,7 @@ protected:
 	void RegisterPlugin();
 
 private:
+	std::string PendingTagMoveCallsign;
 	std::atomic<bool> StopKeyPolling{ false };
 	std::thread KeyPollingThread;
 	std::unique_ptr<AirportWeatherService> WeatherService;

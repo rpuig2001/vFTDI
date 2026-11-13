@@ -32,9 +32,11 @@ The radar manager is 228 px wide in both collapsed and expanded states and uses 
 
 In EuroScope's TAG editor, add the vFTDI `Sequence Number` item and bind its desired mouse action to vFTDI `Sequence Move/Pick`. The item displays only the aircraft's current one-based sequence number, in dark orange, with at least two digits (`01`, `02`, ..., `10`, ..., `100`); aircraft outside the vFTDI sequence have a blank item. Numbers update from the shared sequence after reordering.
 
-Click the source aircraft's number to pick it for moving, then click another aircraft's number and choose **Above** or **Below**. Clicking the picked source again cancels. The popup also offers **Cancel move**, and `Cancel Sequence Move` is available as a separate bindable TAG action. The picked source is shared with the panel's MOVE/PICK controls, so TAG and panel actions can be combined. Picking a source does not change the TAG's number or color.
+Click the source aircraft's number to open its menu, then click **Move** to pick it for moving. Opening or dismissing the menu does not start a move. Once picked, click another aircraft's number and choose **Above** or **Below**. Clicking the picked source again opens a **Cancel Move** option; the move remains active unless that option is selected. The positioning popup also offers **Cancel move**, and `Cancel Sequence Move` is available as a separate bindable TAG action. The picked source is shared with the panel's MOVE/PICK controls, so TAG and panel actions can be combined. Picking a source does not change the TAG's number or color.
 
 The color is configurable under `[colors]` as `TAG_SEQUENCE_NUMBER = 205, 100, 0`. Reload the plugin after changing the color or installing the updated DLL; adding the item and binding its mouse action are EuroScope TAG-layout settings.
+
+Bind the vFTDI `Toggle Targets` action to a TAG mouse action (for example, right-click on `Sequence Number`) to focus that aircraft's FTD/ITD/GAP targets, just like right-clicking its panel row. Invoke it again on the same aircraft to clear focus, or on another sequenced aircraft to switch focus. The panel reflects the same selection; aircraft outside the sequence are ignored. This does not change the sequence or the MOVE/PICK state. An aircraft without a preceding spacing pair has no targets to highlight.
 
 ## Downstream Targets
 
@@ -92,11 +94,23 @@ Before an uncleared aircraft reaches LOCALIZERPOINT, the prediction starts with 
 
 From LOCALIZERPOINT to `speedReductionNm` before the runway, the model uses `speedUntilReductionKts`. For the last `speedReductionNm`, it uses the appropriate `finalApproachSpeed_<category>`. An aircraft already established inside LOCALIZERPOINT uses the same final-leg phases without routing back to the join point.
 
-CA/VA clearance changes the modeled route to the direct distance from the aircraft to the runway. With no remaining pre-join leg, the model uses `speedUntilReductionKts` immediately if the aircraft is farther than `speedReductionNm` from the runway; at or inside that distance it uses final approach speed immediately. Clearance does not itself command a speed change.
+CA/VA clearance changes the modeled route to the direct distance from the aircraft to the runway. The `[speed]` switch `reduceSpeedOnClearance` controls when the predicted speed changes:
 
-For example, with `speedUntilReductionKts = 170` and `speedReductionNm = 5`, a cleared aircraft 10 NM from the runway is modeled at 170 kt for 5 NM, then at its configured final speed for the last 5 NM. If it is cleared at 4 NM, the prediction uses final speed for the remaining 4 NM.
+- `true` (also `1`): use `speedUntilReductionKts` immediately on clearance, until `speedReductionNm`, then final approach speed. This preserves the previous behavior and is the fallback if the setting is omitted.
+- `false` (also `0`): retain observed GS until the assigned runway's `localizerPointNm` distance from the threshold, then use `speedUntilReductionKts` until `speedReductionNm`, then final approach speed. The observed-GS portion is not replaced by `longApproachSpeedKts`, even with `longApproachNm = 999`. This is the setting in the supplied configs.
 
-Final speed comes from `finalApproachSpeed_H`, `_M`, `_L`, or `_S` according to wake category; category `J` uses `_S`. An aircraft's `FAS` row control overrides its category value for both compression and turn predictions. Where usable weather is available, the model adjusts configured speeds for wind to estimate groundspeed; otherwise it uses the configured value. Observed groundspeed is already a groundspeed and is not adjusted again.
+```ini
+[speed]
+reduceSpeedOnClearance = false
+speedUntilReductionKts = 170
+speedReductionNm = 5
+```
+
+For example, with a 12 NM localizer point and delayed reduction, an aircraft cleared at 20 NM retains its observed GS for 8 NM, then is modeled at 170 kt from 12 to 5 NM, then at its configured final speed for the last 5 NM. If cleared at 10 NM it starts in the 170 kt phase; at 4 NM it starts in the final-speed phase. These boundaries use remaining direct distance for cleared aircraft; they do not restore a detour through LOCALIZERPOINT. If the localizer distance is inside the final-speed reduction distance, the final-speed boundary takes precedence.
+
+The switch applies to both CA and VA, in compression and leader movement used for turn predictions. Un-cleared aircraft retain the existing long-approach/localizer speed model. Clearance does not itself command a speed change. Reload the plugin after changing the setting.
+
+Final speed comes from `finalApproachSpeed_H`, `_M`, `_L`, or `_S` according to wake category; category `J` uses `_S`. An aircraft's `FAS` row control overrides its category value for both compression and turn predictions. Where usable weather is available, the model adjusts configured speeds for wind to estimate groundspeed; otherwise it uses the configured value. Actual speed means observed GS, not IAS: wind is never applied to it again. The existing planning filter still smooths observed GS.
 
 ### Sequence Mode And Runway Rules
 

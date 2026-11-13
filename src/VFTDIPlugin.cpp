@@ -154,11 +154,23 @@ void VFTDIPlugin::OnFunctionCall(int FunctionId, const char* sItemString, POINT 
 {
     UNREFERENCED_PARAMETER(Pt);
     if (FunctionId == FUNCTION_SEQUENCE_MOVE_CANCEL) {
+        PendingTagMoveCallsign.clear();
         Session->PendingSequenceMoveCallsign.clear();
         Session->PendingSequenceMoveTargetCallsign.clear();
         return;
     }
-    if (FunctionId == FUNCTION_SEQUENCE_TAG_MOVE_PICK) {
+    if (FunctionId == FUNCTION_SEQUENCE_TAG_START_MOVE) {
+        if (SequenceNumber(Session->ArrivalSequence, PendingTagMoveCallsign) != 0) {
+            Session->PendingSequenceMoveCallsign = PendingTagMoveCallsign;
+            Session->PendingSequenceMoveTargetCallsign.clear();
+            const std::string message = "Move " + PendingTagMoveCallsign +
+                ": click another sequence number or panel row to choose its position";
+            DisplayUserMessage(PLUGIN_NAME.c_str(), "Sequence", message.c_str(), true, false, false, false, false);
+        }
+        PendingTagMoveCallsign.clear();
+        return;
+    }
+    if (FunctionId == FUNCTION_SEQUENCE_TAG_MOVE_PICK || FunctionId == FUNCTION_SEQUENCE_TAG_TOGGLE_TARGETS) {
         const CFlightPlan flightPlan = FlightPlanSelectASEL();
         const CRadarTarget radarTarget = RadarTargetSelectASEL();
         const char* selectedCallsign = flightPlan.IsValid() ? flightPlan.GetCallsign()
@@ -166,16 +178,20 @@ void VFTDIPlugin::OnFunctionCall(int FunctionId, const char* sItemString, POINT 
         if (selectedCallsign == nullptr || SequenceNumber(Session->ArrivalSequence, selectedCallsign) == 0)
             return;
         const std::string callsign(selectedCallsign);
+        if (FunctionId == FUNCTION_SEQUENCE_TAG_TOGGLE_TARGETS) {
+            Session->RightClickedSequenceCallsign = Session->RightClickedSequenceCallsign == callsign
+                ? std::string() : callsign;
+            return;
+        }
         if (Session->PendingSequenceMoveCallsign == callsign) {
-            Session->PendingSequenceMoveCallsign.clear();
-            Session->PendingSequenceMoveTargetCallsign.clear();
+            OpenPopupList(Area, callsign.c_str(), 1);
+            AddPopupListElement("Cancel Move", "", FUNCTION_SEQUENCE_MOVE_CANCEL);
             return;
         }
         if (SequenceNumber(Session->ArrivalSequence, Session->PendingSequenceMoveCallsign) == 0) {
-            Session->PendingSequenceMoveCallsign = callsign;
-            Session->PendingSequenceMoveTargetCallsign.clear();
-            const std::string message = "Move " + callsign + ": click another sequence number or panel row to choose its position";
-            DisplayUserMessage(PLUGIN_NAME.c_str(), "Sequence", message.c_str(), true, false, false, false, false);
+            PendingTagMoveCallsign = callsign;
+            OpenPopupList(Area, callsign.c_str(), 1);
+            AddPopupListElement("Move", "", FUNCTION_SEQUENCE_TAG_START_MOVE);
             return;
         }
         Session->PendingSequenceMoveTargetCallsign = callsign;
@@ -280,4 +296,5 @@ void VFTDIPlugin::RegisterPlugin() {
     RegisterTagItemType("Sequence Number", TAG_ITEM_SEQUENCE_NUMBER);
     RegisterTagItemFunction("Sequence Move/Pick", FUNCTION_SEQUENCE_TAG_MOVE_PICK);
     RegisterTagItemFunction("Cancel Sequence Move", FUNCTION_SEQUENCE_MOVE_CANCEL);
+    RegisterTagItemFunction("Toggle Targets", FUNCTION_SEQUENCE_TAG_TOGGLE_TARGETS);
 }

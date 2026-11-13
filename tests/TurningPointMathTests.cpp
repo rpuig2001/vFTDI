@@ -184,6 +184,41 @@ int main()
 			++checkedRoutes;
 		}
 	}
+	const SpeedProfile delayedReduction{ 240.0, 220.0, 170.0, 130.0, 5.0, 999.0, 12.0 };
+	Check(ClearedSpeedBoundaryNm(true, false, 12.0, 5.0) == 12.0 &&
+		ClearedSpeedBoundaryNm(true, true, 12.0, 5.0) == 0.0 &&
+		ClearedSpeedBoundaryNm(false, false, 12.0, 5.0) == 0.0,
+		"delayed reduction applies only to cleared aircraft when enabled by configuration");
+	Check(std::abs(TimeToThresholdHours(0.0, 20.0, delayedReduction) -
+		(8.0 / 240.0 + 7.0 / 170.0 + 5.0 / 130.0)) < 1.0e-9,
+		"cleared aircraft retains actual GS until localizer distance despite long-approach settings");
+	Check(std::abs(DistanceFlownNm(0.0, 20.0, delayedReduction, 4.0 / 240.0) - 4.0) < 1.0e-9 &&
+		std::abs(DistanceFlownNm(0.0, 20.0, delayedReduction, 8.0 / 240.0 + 2.0 / 170.0) - 10.0) < 1.0e-9,
+		"distance prediction transitions from observed GS to configured approach speed at the boundary");
+	Check(std::abs(TimeToThresholdHours(0.0, 10.0, delayedReduction) -
+		(5.0 / 170.0 + 5.0 / 130.0)) < 1.0e-9 &&
+		std::abs(TimeToThresholdHours(0.0, 4.0, delayedReduction) - 4.0 / 130.0) < 1.0e-9,
+		"inside localizer and reduction boundaries the appropriate reduced speed applies immediately");
+	Check(std::abs(TimeToThresholdHours(0.0, 12.0, delayedReduction) -
+		(7.0 / 170.0 + 5.0 / 130.0)) < 1.0e-9 &&
+		std::abs(TimeToThresholdHours(0.0, 5.0, delayedReduction) - 5.0 / 130.0) < 1.0e-9,
+		"exact localizer and final-speed boundaries enter the next speed phase");
+	SpeedProfile shortLocalizer = delayedReduction;
+	shortLocalizer.ActualSpeedUntilNm = ClearedSpeedBoundaryNm(true, false, 3.0, 5.0);
+	Check(std::abs(TimeToThresholdHours(0.0, 10.0, shortLocalizer) -
+		(5.0 / 240.0 + 5.0 / 130.0)) < 1.0e-9,
+		"final-speed reduction boundary takes precedence over a closer localizer point");
+	SpeedProfile immediateReduction = delayedReduction;
+	immediateReduction.ActualSpeedUntilNm = 0.0;
+	Check(std::abs(TimeToThresholdHours(0.0, 20.0, immediateReduction) -
+		(15.0 / 170.0 + 5.0 / 130.0)) < 1.0e-9,
+		"immediate-clearance reduction preserves the previous speed model");
+	SpeedProfile withWind = delayedReduction;
+	withWind.BeforeFinalKts = 195.0;
+	withWind.CruiseKts = 145.0;
+	withWind.FinalKts = 105.0;
+	Check(std::abs(DistanceFlownNm(0.0, 20.0, withWind, 4.0 / 240.0) - 4.0) < 1.0e-9,
+		"wind-adjusted configured speeds do not alter the observed-GS phase");
 	const SpeedProfile phases{ 220.0, 180.0, 170.0, 130.0, 5.0, 20.0 };
 	Check(std::abs(TimeToThresholdHours(10.0, 15.0, phases) -
 		(5.0 / 220.0 + 5.0 / 180.0 + 10.0 / 170.0 + 5.0 / 130.0)) < 1.0e-9, "configured speed phases remain unchanged");

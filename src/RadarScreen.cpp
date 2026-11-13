@@ -151,6 +151,22 @@ double PlannedDistanceFlownNm(
 	return flownDistance < totalRouteDistance ? flownDistance : totalRouteDistance;
 }
 
+double ClearedActualSpeedBoundaryNm(CFlightPlan plan)
+{
+	if (!plan.IsValid() || !CCallsignLookup::Available || CCallsignLookup::Lookup == nullptr)
+		return 0.0;
+	const int clearedAltitude = plan.GetControllerAssignedData().GetClearedAltitude();
+	const CFlightPlanData data = plan.GetFlightPlanData();
+	const char* destination = data.GetDestination();
+	const char* runway = data.GetArrivalRwy();
+	double localizerPointNm = 8.0;
+	if (destination != nullptr && runway != nullptr)
+		CCallsignLookup::Lookup->getLocalizerPointDistanceNm(destination, runway, localizerPointNm);
+	return TurningPointMath::ClearedSpeedBoundaryNm(clearedAltitude == 1 || clearedAltitude == 2,
+		CCallsignLookup::Lookup->getReduceSpeedOnClearance(), localizerPointNm,
+		CCallsignLookup::Lookup->getSpeedReductionDistanceNm());
+}
+
 double CalculateCompressionMarginNm(
 	char precedingWake, char succeedingWake,
 	int precedingFinalSpeedOverrideKts, int succeedingFinalSpeedOverrideKts,
@@ -158,6 +174,7 @@ double CalculateCompressionMarginNm(
 	double precedingJoinToThresholdNm, CPosition precedingPosition, double precedingTrack,
 	double succeedingGroundSpeedKts, double succeedingDistanceToJoinNm,
 	double succeedingJoinToThresholdNm, CPosition succeedingPosition, double succeedingTrack,
+	double precedingActualSpeedUntilNm, double succeedingActualSpeedUntilNm,
 	const AirportWeatherService* weatherService)
 {
 	const bool hasConfig = CCallsignLookup::Available && CCallsignLookup::Lookup != nullptr;
@@ -196,6 +213,10 @@ double CalculateCompressionMarginNm(
 		succeedingGroundSpeedKts = succeedingCruiseSpeedKts;
 	if (precedingGroundSpeedKts <= 0.0 || succeedingGroundSpeedKts <= 0.0)
 		return 0.0;
+	TurningPointMath::SplitActualSpeedLegs(precedingDistanceToJoinNm, precedingJoinToThresholdNm,
+		precedingActualSpeedUntilNm, reductionDistanceNm);
+	TurningPointMath::SplitActualSpeedLegs(succeedingDistanceToJoinNm, succeedingJoinToThresholdNm,
+		succeedingActualSpeedUntilNm, reductionDistanceNm);
 	double precedingDistanceBeforeLongApproachNm = precedingDistanceToJoinNm;
 	double succeedingDistanceBeforeLongApproachNm = succeedingDistanceToJoinNm;
 	double precedingLongApproachGroundSpeedKts = precedingGroundSpeedKts;
@@ -225,6 +246,15 @@ double CalculateCompressionMarginNm(
 			precedingLongApproachGroundSpeedKts = precedingGroundSpeedKts;
 		if (succeedingGroundSpeedKts < succeedingLongApproachGroundSpeedKts)
 			succeedingLongApproachGroundSpeedKts = succeedingGroundSpeedKts;
+	}
+
+	if (precedingActualSpeedUntilNm > 0.0) {
+		precedingDistanceBeforeLongApproachNm = precedingDistanceToJoinNm;
+		precedingLongApproachGroundSpeedKts = precedingGroundSpeedKts;
+	}
+	if (succeedingActualSpeedUntilNm > 0.0) {
+		succeedingDistanceBeforeLongApproachNm = succeedingDistanceToJoinNm;
+		succeedingLongApproachGroundSpeedKts = succeedingGroundSpeedKts;
 	}
 
 	const double precedingPreReductionDistance = precedingJoinToThresholdNm > reductionDistanceNm
@@ -296,7 +326,8 @@ TurningPointMath::SpeedProfile TurningSpeedProfile(CRadarTarget aircraft, CFligh
 	if (beforeFinalKts > currentSpeedKts)
 		beforeFinalKts = currentSpeedKts;
 	return { currentSpeedKts, beforeFinalKts, cruiseKts, finalKts,
-		hasConfig ? CCallsignLookup::Lookup->getSpeedReductionDistanceNm() : 5.0, longApproachNm };
+		hasConfig ? CCallsignLookup::Lookup->getSpeedReductionDistanceNm() : 5.0, longApproachNm,
+		ClearedActualSpeedBoundaryNm(plan) };
 }
 
 bool FindLocalizerMarkerPosition(
@@ -866,7 +897,8 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 				precedingMotion.GroundSpeedKts, precedingPlanningDistanceNm, precedingPlanningFinalNm,
 				precedingPosition, precedingMotion.TrackDegrees,
 				succeedingMotion.GroundSpeedKts, succeedingPlanningDistanceNm, succeedingPlanningFinalNm,
-				succeedingPosition, succeedingMotion.TrackDegrees, WeatherService);
+				succeedingPosition, succeedingMotion.TrackDegrees,
+				ClearedActualSpeedBoundaryNm(precedingPlan), ClearedActualSpeedBoundaryNm(succeedingPlan), WeatherService);
 		}
 		const bool gapGoverning = measurement.GapNm > finalTargetNm;
 		if (gapGoverning)

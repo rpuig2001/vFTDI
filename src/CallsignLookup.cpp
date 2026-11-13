@@ -95,6 +95,7 @@ std::string IniDirective(const std::string& section, const std::string& key)
 	if (section == "SPEED") {
 		if (normalizedKey == "LONGAPPROACHNM" || normalizedKey == "LONGAPPROACHSPEEDKTS" ||
 			normalizedKey == "SPEEDUNTILREDUCTIONKTS" || normalizedKey == "SPEEDREDUCTIONNM" ||
+			normalizedKey == "REDUCESPEEDONCLEARANCE" ||
 			normalizedKey.compare(0, 17, "FINALAPPROACHSPEED_") == 0)
 			return normalizedKey;
 	}
@@ -289,6 +290,17 @@ CCallsignLookup::CCallsignLookup(const std::string& fileName)
 				showLocalizerRoute = value == 1;
 			continue;
 		}
+		if (key == "REDUCESPEEDONCLEARANCE") {
+			std::string value;
+			if (parser >> value) {
+				value = UppercaseIdentifier(value);
+				if (value == "TRUE" || value == "1")
+					reduceSpeedOnClearance = true;
+				else if (value == "FALSE" || value == "0")
+					reduceSpeedOnClearance = false;
+			}
+			continue;
+		}
 		if (key == "LONGAPPROACHNM") {
 			double value;
 			if (parser >> value && std::isfinite(value) && value >= 0.0)
@@ -443,6 +455,11 @@ int CCallsignLookup::getSpeedUntilReductionKts() const
 {
 	const auto value = configValues.find("SPEEDUNTILREDUCTIONKTS");
 	return value == configValues.end() ? 170 : value->second;
+}
+
+bool CCallsignLookup::getReduceSpeedOnClearance() const
+{
+	return reduceSpeedOnClearance;
 }
 
 double CCallsignLookup::getLongApproachNm() const

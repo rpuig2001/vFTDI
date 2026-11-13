@@ -41,6 +41,7 @@ public:
 	bool getWakeSeparation(char preceding, char succeeding, double& separationNm) const;
 	int getSpeedReductionDistanceNm() const;
 	int getSpeedUntilReductionKts() const;
+	bool getReduceSpeedOnClearance() const;
 	double getLongApproachNm() const;
 	double getLongApproachSpeedKts() const;
 	int getFinalApproachSpeedKts(char wakeCategory) const;
@@ -79,4 +80,5 @@ private:
 	double longApproachSpeedKts = 250.0;
 	bool showLocalizerRoute = false;
 	bool dependentMode = false;
+	bool reduceSpeedOnClearance = true;
 };

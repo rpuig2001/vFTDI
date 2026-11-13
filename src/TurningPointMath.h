@@ -37,7 +37,24 @@ namespace TurningPointMath {
 		double FinalKts;
 		double ReductionNm;
 		double LongApproachNm;
+		double ActualSpeedUntilNm = 0.0;
 	};
+
+	inline double ClearedSpeedBoundaryNm(bool clearedForApproach, bool reduceOnClearance,
+		double localizerPointNm, double reductionNm)
+	{
+		return clearedForApproach && !reduceOnClearance ? (std::max)(localizerPointNm, reductionNm) : 0.0;
+	}
+
+	inline void SplitActualSpeedLegs(double& beforeFinalNm, double& finalNm,
+		double actualSpeedUntilNm, double reductionNm)
+	{
+		if (actualSpeedUntilNm <= 0.0)
+			return;
+		const double totalNm = beforeFinalNm + finalNm;
+		finalNm = (std::min)(totalNm, (std::max)(actualSpeedUntilNm, reductionNm));
+		beforeFinalNm = totalNm - finalNm;
+	}
 
 	struct ItdTarget {
 		double SlotDistanceNm;
@@ -189,8 +206,9 @@ namespace TurningPointMath {
 			speed.CruiseKts <= 0.0 || speed.FinalKts <= 0.0 ||
 			beforeFinalNm < 0.0 || finalNm < 0.0 || speed.ReductionNm < 0.0)
 			return -1.0;
+		SplitActualSpeedLegs(beforeFinalNm, finalNm, speed.ActualSpeedUntilNm, speed.ReductionNm);
 		double currentSpeedDistanceNm = beforeFinalNm;
-		if (speed.LongApproachNm > 0.0) {
+		if (speed.LongApproachNm > 0.0 && speed.ActualSpeedUntilNm <= 0.0) {
 			currentSpeedDistanceNm = beforeFinalNm + finalNm - speed.LongApproachNm;
 			if (currentSpeedDistanceNm < 0.0)
 				currentSpeedDistanceNm = 0.0;
@@ -211,7 +229,8 @@ namespace TurningPointMath {
 			return 0.0;
 		if (elapsedHours < 0.0)
 			return elapsedHours * speed.CurrentKts;
-		const double currentDistanceNm = speed.LongApproachNm > 0.0
+		SplitActualSpeedLegs(beforeFinalNm, finalNm, speed.ActualSpeedUntilNm, speed.ReductionNm);
+		const double currentDistanceNm = speed.LongApproachNm > 0.0 && speed.ActualSpeedUntilNm <= 0.0
 			? (std::max)(0.0, (std::min)(beforeFinalNm, beforeFinalNm + finalNm - speed.LongApproachNm)) : beforeFinalNm;
 		const double cruiseDistanceNm = (std::max)(0.0, finalNm - speed.ReductionNm);
 		const double distances[] = { currentDistanceNm, beforeFinalNm - currentDistanceNm,

@@ -67,6 +67,23 @@ int main(int argumentCount, char** arguments)
 	}
 	CCallsignLookup defaults(path);
 	Check(!defaults.getDependentMode(), "missing mode defaults to Alternating");
+	Check(defaults.getReduceSpeedOnClearance(), "missing speed-on-clearance switch preserves immediate reduction");
+	for (const char* value : { "false", "0", "FaLsE" }) {
+		{
+			std::ofstream output(path);
+			output << "[speed]\nreduceSpeedOnClearance = " << value << '\n';
+		}
+		CCallsignLookup delayed(path);
+		Check(!delayed.getReduceSpeedOnClearance(), "disabled speed-on-clearance setting");
+	}
+	for (const char* value : { "true", "1", "TrUe", "invalid" }) {
+		{
+			std::ofstream output(path);
+			output << "[speed]\nreduceSpeedOnClearance = " << value << '\n';
+		}
+		CCallsignLookup immediate(path);
+		Check(immediate.getReduceSpeedOnClearance(), "enabled or invalid switch preserves immediate reduction");
+	}
 	Check(!defaults.usesDependentSpacing(true, "EDDF", "25L", "EDDF", "25R"), "no rules means Alternating");
 	{
 		std::ofstream output(path);
