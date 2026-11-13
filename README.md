@@ -3,6 +3,8 @@
 An independent VATSIM EuroScope plugin that displays and lets controllers adjust an arrival sequence, with final-approach separation targets for adjacent aircraft. It is a controller-training and simulation aid, not a certified or approved operational ATC system.
 
 <img width="729" height="471" alt="image" src="https://github.com/user-attachments/assets/d83830ff-5e12-43d9-be76-af71d7df8a7a" />
+<img width="232" height="254" alt="image" src="https://github.com/user-attachments/assets/886cad67-d934-49a6-8d0c-eea8640df939" />
+
 
 
 ## Current features
