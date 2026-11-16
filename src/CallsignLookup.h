@@ -25,9 +25,8 @@ public:
 	int getValue(const std::string& key) const;
 	int getMinimumAltitude() const;
 	static std::string normalizeRunway(const std::string& runway);
-	static bool isAutomaticArrivalRunwayEligible(const std::string& runway,
-		const std::vector<std::string>& airportRunways);
 	bool isConfiguredArrivalRunway(const std::string& airport, const std::string& runway) const;
+	bool hasConfiguredArrivalRunways(const std::string& airport) const;
 	double getMaximumAutoDistanceNm() const;
 	int getDefaultVisibleRows() const;
 	int getMarkerSizePixels(bool finalTarget) const;

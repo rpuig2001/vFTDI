@@ -1540,26 +1540,10 @@ void RadarScreen::AddAutomaticArrivals()
 		Session->AutoAcceptRequested = false;
 		return;
 	}
-	std::vector<std::string> airportRunways;
-	for (CSectorElement runway = GetPlugIn()->SectorFileElementSelectFirst(SECTOR_ELEMENT_RUNWAY);
-		runway.IsValid(); runway = GetPlugIn()->SectorFileElementSelectNext(runway, SECTOR_ELEMENT_RUNWAY)) {
-		const char* airport = runway.GetAirportName();
-		if (airport == nullptr || UppercaseIdentifier(airport) != Session->AutoSequenceAirport)
-			continue;
-		CPosition firstEnd;
-		CPosition secondEnd;
-		if (!runway.GetPosition(&firstEnd, 0) || !runway.GetPosition(&secondEnd, 1))
-			continue;
-		for (int index = 0; index < 2; ++index) {
-			const char* runwayName = runway.GetRunwayName(index);
-			if (runwayName != nullptr && CCallsignLookup::Available && CCallsignLookup::Lookup != nullptr &&
-				CCallsignLookup::Lookup->isConfiguredArrivalRunway(Session->AutoSequenceAirport, runwayName))
-				airportRunways.push_back(runwayName);
-		}
-	}
-	Session->AutoRunwayReferenceAvailable = !airportRunways.empty();
+	Session->AutoRunwayReferenceAvailable = CCallsignLookup::Available && CCallsignLookup::Lookup != nullptr &&
+		CCallsignLookup::Lookup->hasConfiguredArrivalRunways(Session->AutoSequenceAirport);
 	if (!Session->AutoRunwayReferenceAvailable) {
-		Session->AutoSequenceStatus = "No configured airport runways available in sector file";
+		Session->AutoSequenceStatus = "No runways configured for this airport";
 		Session->AutoProposalOrder.clear();
 		Session->AutoProposalBase.clear();
 		Session->AutoAcceptRequested = false;
@@ -1573,8 +1557,8 @@ void RadarScreen::AddAutomaticArrivals()
 		const char* arrivalRunway = plan.IsValid() ? plan.GetFlightPlanData().GetArrivalRwy() : nullptr;
 		if (inSequence == Session->ArrivalSequence.end() ||
 			(destination != nullptr && UppercaseIdentifier(destination) != Session->AutoSequenceAirport) ||
-			(plan.IsValid() && !CCallsignLookup::isAutomaticArrivalRunwayEligible(
-				arrivalRunway != nullptr ? arrivalRunway : "", airportRunways)) ||
+			(plan.IsValid() && !CCallsignLookup::Lookup->isConfiguredArrivalRunway(Session->AutoSequenceAirport,
+				arrivalRunway != nullptr ? arrivalRunway : "")) ||
 			(target.IsValid() && maxDistanceNm > 0.0 &&
 				!IsAutomaticDistanceEligible(airportPosition.DistanceTo(target.GetPosition().GetPosition()), maxDistanceNm))) {
 			if (inSequence != Session->ArrivalSequence.end()) {
@@ -1628,7 +1612,8 @@ void RadarScreen::AddAutomaticArrivals()
 		if (destination == nullptr || UppercaseIdentifier(destination) != Session->AutoSequenceAirport)
 			continue;
 		const char* arrivalRunway = data.GetArrivalRwy();
-		if (arrivalRunway == nullptr || !CCallsignLookup::isAutomaticArrivalRunwayEligible(arrivalRunway, airportRunways))
+		if (arrivalRunway == nullptr ||
+			!CCallsignLookup::Lookup->isConfiguredArrivalRunway(Session->AutoSequenceAirport, arrivalRunway))
 			continue;
 		const std::string callsign(callsignText);
 		if (std::find(Session->ArrivalSequence.begin(), Session->ArrivalSequence.end(), callsign) != Session->ArrivalSequence.end())

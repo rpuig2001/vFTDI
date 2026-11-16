@@ -54,16 +54,6 @@ int main(int argumentCount, char** arguments)
 	CheckMaximumDistance(path, "[general]\nmaxDistance = -10\n", 0.0);
 	CheckMaximumDistance(path, "[general]\nmaxDistance = invalid\n", 0.0);
 	CheckMaximumDistance(path, "[general]\nmaxDistance = 120\nmaxDistance = invalid\n", 120.0);
-	const std::vector<std::string> availableRunways = { "07L", "25R" };
-	if (CCallsignLookup::isAutomaticArrivalRunwayEligible("", availableRunways) ||
-		CCallsignLookup::isAutomaticArrivalRunwayEligible("25L", availableRunways) ||
-		CCallsignLookup::isAutomaticArrivalRunwayEligible("00L", availableRunways) ||
-		CCallsignLookup::isAutomaticArrivalRunwayEligible("25R", {}) ||
-		!CCallsignLookup::isAutomaticArrivalRunwayEligible(" 7l ", availableRunways) ||
-		!CCallsignLookup::isAutomaticArrivalRunwayEligible("25r", availableRunways)) {
-		std::cerr << "FAIL: automatic arrivals require an assigned runway available at the selected airport\n";
-		return 1;
-	}
 	{
 		std::ofstream config(path);
 		config << "[runways.EDDF.07L]\nlocalizerPointNm = 18\nlocalizerCourseDegrees = 69\n";
@@ -102,16 +92,11 @@ int main(int argumentCount, char** arguments)
 		std::cerr << "FAIL: automatic arrivals require a runway configured for their destination airport\n";
 		return 1;
 	}
-	const auto automaticRunwayAllowed = [&configuredRunways](const std::string& airport, const std::string& runway,
-		const std::vector<std::string>& sectorRunways) {
-		return configuredRunways.isConfiguredArrivalRunway(airport, runway) &&
-			CCallsignLookup::isAutomaticArrivalRunwayEligible(runway, sectorRunways);
-	};
-	if (!automaticRunwayAllowed("EDDF", "7L", { "07L", "25L" }) ||
-		automaticRunwayAllowed("EDDF", "25L", { "07L", "25L" }) ||
-		automaticRunwayAllowed("EDDF", "25R", { "07L", "25L" }) ||
-		automaticRunwayAllowed("EDDF", "24L", { "24L" })) {
-		std::cerr << "FAIL: automatic arrivals require a runway configured for their airport and available in the sector\n";
+	if (!configuredRunways.hasConfiguredArrivalRunways("EDDF") ||
+		configuredRunways.hasConfiguredArrivalRunways("EDDM") ||
+		!configuredRunways.isConfiguredArrivalRunway("EDDF", "7L") ||
+		configuredRunways.isConfiguredArrivalRunway("EDDF", "25L")) {
+		std::cerr << "FAIL: automatic arrivals require a runway configured for the selected airport\n";
 		return 1;
 	}
 	std::vector<std::string> sequence = { "ALPHA", "BRAVO", "CHARLIE", "DELTA" };

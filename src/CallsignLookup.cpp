@@ -151,22 +151,19 @@ std::string CCallsignLookup::normalizeRunway(const std::string& runway)
 	return NormalizeRunway(Trim(runway));
 }
 
-bool CCallsignLookup::isAutomaticArrivalRunwayEligible(const std::string& runway,
-	const std::vector<std::string>& airportRunways)
-{
-	const std::string normalized = normalizeRunway(runway);
-	if (normalized.empty())
-		return false;
-	return std::any_of(airportRunways.begin(), airportRunways.end(), [&normalized](const std::string& candidate) {
-		return normalizeRunway(candidate) == normalized;
-	});
-}
-
 bool CCallsignLookup::isConfiguredArrivalRunway(const std::string& airport, const std::string& runway) const
 {
 	const std::string normalizedAirport = UppercaseIdentifier(Trim(airport));
 	const std::string normalizedRunway = normalizeRunway(runway);
 	return !normalizedRunway.empty() && configuredRunways.find({ normalizedAirport, normalizedRunway }) != configuredRunways.end();
+}
+
+bool CCallsignLookup::hasConfiguredArrivalRunways(const std::string& airport) const
+{
+	const std::string normalizedAirport = UppercaseIdentifier(Trim(airport));
+	return std::any_of(configuredRunways.begin(), configuredRunways.end(), [&normalizedAirport](const auto& entry) {
+		return entry.first == normalizedAirport;
+	});
 }
 
 CCallsignLookup::CCallsignLookup(const std::string& fileName)
