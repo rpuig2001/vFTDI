@@ -107,20 +107,18 @@ void DrawWakeCategoryBadge(CDC& dc, const CRect& area, char category)
 void DrawStatusBadge(CDC& dc, const CRect& area, const std::string& status)
 {
 	const bool turnNow = status.compare(0, 8, "TURN NOW") == 0;
-	const bool turnSoon = status.compare(0, 9, "TURN SOON") == 0;
 	const bool updating = status == "UPDATING";
-	const bool countdown = status.compare(0, 5, "TURN ") == 0 && !turnNow && !turnSoon;
+	const bool countdown = status.compare(0, 5, "TURN ") == 0 && !turnNow;
 	const bool noDelay = status == "NO DELAY";
 	const bool cleared = status == "CLEARED";
 	const bool leader = status == "LEADER";
 	const char* fillKey = turnNow ? "COLOR_BREACH_ALERT"
-		: (turnSoon ? "COLOR_GAP_TARGET"
-			: (updating ? "COLOR_TURN_PASSED"
+		: (updating ? "COLOR_TURN_PASSED"
 				: (countdown ? "COLOR_TURN_POINT"
 					: (noDelay ? "COLOR_ITD_TARGET"
 						: (cleared ? "COLOR_PANEL_DISABLED"
-							: (leader ? "COLOR_PANEL_SURFACE" : "COLOR_PANEL_STATUS_WARNING"))))));
-	const char* textKey = turnNow || leader || (!turnSoon && !updating && !countdown && !noDelay && !cleared)
+							: (leader ? "COLOR_PANEL_SURFACE" : "COLOR_PANEL_STATUS_WARNING")))));
+	const char* textKey = turnNow || leader || (!updating && !countdown && !noDelay && !cleared)
 		? "COLOR_PANEL_HEADER_TEXT" : "COLOR_PANEL_TEXT";
 	const int savedState = dc.SaveDC();
 	CFont font;
@@ -177,6 +175,38 @@ void DrawProfileControl(CRadarScreen* screen, CDC& dc, const CRect& rect,
 	}
 }
 
+void DrawAutoSequenceControl(CRadarScreen* screen, CDC& dc, const CRect& area, const FTDiSession& session)
+{
+	const CRect autoButton(area.left, area.top, area.left + 59, area.bottom);
+	DrawButton(dc, autoButton, session.AutoSequenceAirport.empty() ? "AUTO OFF" : session.AutoSequenceAirport,
+		ConfiguredColor(session.AutoSequenceAirport.empty() ? "COLOR_PANEL_SURFACE" : "COLOR_PANEL_ACCENT"),
+		ConfiguredColor(session.AutoSequenceAirport.empty() ? "COLOR_PANEL_HEADER_TEXT" : "COLOR_PANEL_TEXT"));
+	const std::string autoTooltip = session.AutoSequenceAirport.empty()
+		? "Enable automatic arrival sequencing" : "Auto " + session.AutoSequenceAirport + ": " + session.AutoSequenceStatus;
+	screen->AddScreenObject(SCREEN_AUTO_SEQUENCE, "AUTO", autoButton, false, autoTooltip.c_str());
+	std::string moved;
+	std::string before;
+	const bool hasSuggestion = session.AutoProposalBase == session.ArrivalSequence &&
+		SequenceProposalMove(session.AutoProposalBase, session.AutoProposalOrder, moved, before);
+	const CRect lamp(area.right - 20, area.top, area.right, area.bottom);
+	const int savedState = dc.SaveDC();
+	CPen lampPen(PS_SOLID, 1, ConfiguredColor("COLOR_PANEL_DIVIDER"));
+	CBrush lampBrush(ConfiguredColor(hasSuggestion ? "COLOR_GAP_TARGET" : "COLOR_PANEL_DISABLED"));
+	dc.SelectObject(&lampPen);
+	dc.SelectObject(&lampBrush);
+	dc.Ellipse(lamp.left + 4, lamp.top + 4, lamp.right - 4, lamp.bottom - 4);
+	dc.RestoreDC(savedState);
+	const std::string lampTooltip = hasSuggestion
+		? "Suggestion: move " + moved + " before " + before + "; click for arrow and review"
+		: "No sequence suggestion";
+	screen->AddScreenObject(SCREEN_AUTO_LAMP, "AUTO_LAMP", lamp, false, lampTooltip.c_str());
+	if (!session.AutoSequenceAirport.empty()) {
+		const CRect statusArea(autoButton.right + 5, area.top, lamp.left - 3, area.bottom);
+		DrawFittedText(dc, statusArea, hasSuggestion ? "Suggestion" : session.AutoSequenceStatus,
+			ConfiguredColor("COLOR_PANEL_TEXT"), 8, 7);
+	}
+}
+
 std::string PairObjectId(const char* action, const WakeMeasurement& measurement)
 {
 	return std::string(action) + "|" + measurement.PrecedingCallsign + "|" + measurement.SucceedingCallsign;
@@ -212,7 +242,7 @@ void DrawSequenceRow(CRadarScreen* screen, CDC& dc, const CRect& row,
 		std::to_string(index + 1) + "  " + callsign;
 	const int controlsLeft = row.right - 102;
 	const CRect callsignArea(row.left + 7, row.top + 2,
-		controlsLeft - 3, row.top + 19);
+		controlsLeft - 35, row.top + 19);
 	DrawFittedText(dc, callsignArea, sequenceTitle,
 		ConfiguredColor(isRightClicked ? "COLOR_PANEL_STATUS_WARNING" : "COLOR_PANEL_TEXT"), 9, 7, true);
 	CFlightPlan flightPlan = screen->GetPlugIn()->FlightPlanSelect(callsign.c_str());
@@ -279,7 +309,50 @@ void DrawSequenceRow(CRadarScreen* screen, CDC& dc, const CRect& row,
 		screen->AddScreenObject(SCREEN_PANEL_GAP, gapId.c_str(), gapButton, false,
 			gapTooltip.c_str());
 	}
+	const CRect differenceArea(controlsLeft - 32, row.top + 2, controlsLeft - 1, row.top + 19);
+	const auto modeledSpeed = session.ModeledGroundSpeedKts.find(callsign);
+	const CRadarTarget target = screen->GetPlugIn()->RadarTargetSelect(callsign.c_str());
+	std::string difference = "--";
+	std::string differenceTooltip = "Modeled speed difference unavailable";
+	if (modeledSpeed != session.ModeledGroundSpeedKts.end() && target.IsValid() &&
+		target.GetPosition().GetReceivedTime() <= 30 && target.GetGS() > 0) {
+		const int deltaKts = static_cast<int>(std::lround(target.GetGS() - modeledSpeed->second));
+		char formatted[24] = {};
+		std::snprintf(formatted, sizeof(formatted), "%+03d", deltaKts);
+		difference = formatted;
+		differenceTooltip = "Groundspeed " + std::to_string(target.GetGS()) + " kt; modeled " +
+			std::to_string(static_cast<int>(std::lround(modeledSpeed->second))) + " kt";
+		const auto wind = session.ModeledSpeedHasWind.find(callsign);
+		differenceTooltip += wind != session.ModeledSpeedHasWind.end() && wind->second
+			? "; airport wind available" : "; airport wind unavailable";
+	}
+	DrawFittedText(dc, differenceArea, difference, ConfiguredColor("COLOR_PANEL_TEXT"), 8, 7, true);
+	screen->AddScreenObject(SCREEN_TURN_STATUS, callsign.c_str(), differenceArea, false, differenceTooltip.c_str());
 }
+}
+
+bool OpenAutoSuggestionMenu(CPlugIn* plugIn, FTDiSession& session, RECT area)
+{
+	if (plugIn == nullptr || session.AutoProposalBase != session.ArrivalSequence)
+		return false;
+	std::string moved;
+	std::string before;
+	if (!SequenceProposalMove(session.AutoProposalBase, session.AutoProposalOrder, moved, before))
+		return false;
+	if (!BeginSequenceProposalPreview(session.ArrivalSequence, session.AutoProposalBase,
+		session.AutoProposalOrder, session.AutoPreviewBase, session.AutoPreviewOrder))
+		return false;
+	session.PendingAutoDecisionBase = session.AutoProposalBase;
+	session.PendingAutoDecisionOrder = session.AutoProposalOrder;
+	SuggestionMenuGeneration.fetch_add(1);
+	SuggestionMenuActive.store(true);
+	if (session.AutoPreviewRadarScreen != nullptr)
+		session.AutoPreviewRadarScreen->RequestRefresh();
+	const std::string title = "MOVE " + moved + " BEFORE " + before;
+	plugIn->OpenPopupList(area, title.c_str(), 1);
+	plugIn->AddPopupListElement("Accept", "", FUNCTION_AUTO_ACCEPT);
+	plugIn->AddPopupListElement("Decline", "", FUNCTION_AUTO_DECLINE);
+	return true;
 }
 
 bool HandleFTDiPanelButton(
@@ -362,6 +435,24 @@ bool HandleFTDiPanelButton(
 	}
 	if (button != BUTTON_LEFT)
 		return false;
+	if (objectType == SCREEN_AUTO_SEQUENCE) {
+		if (screen == nullptr)
+			return true;
+		CPlugIn* plugIn = screen->GetPlugIn();
+		if (session.AutoSequenceAirport.empty())
+			plugIn->OpenPopupEdit(area, FUNCTION_AUTO_AIRPORT, "");
+		else {
+			plugIn->OpenPopupList(area, "AUTO SEQUENCE", 1);
+			plugIn->AddPopupListElement("Change airport...", "", FUNCTION_AUTO_CHANGE);
+			plugIn->AddPopupListElement("Disable auto sequence", "", FUNCTION_AUTO_DISABLE);
+		}
+		return true;
+	}
+	if (objectType == SCREEN_AUTO_LAMP) {
+		if (screen != nullptr)
+			OpenAutoSuggestionMenu(screen->GetPlugIn(), session, area);
+		return true;
+	}
 	if (objectType == SCREEN_SEQUENCE_MOVE) {
 		const auto aircraft = std::find(session.ArrivalSequence.begin(), session.ArrivalSequence.end(), objectId);
 		if (aircraft == session.ArrivalSequence.end() || session.ArrivalSequence.size() < 2)
@@ -498,7 +589,7 @@ void DrawFTDiRadarOverlay(
 	const int panelWidth = availableWidth < 228 ? availableWidth : 228;
 	const int managerWidth = panelWidth;
 	const int screenHeight = bounds.bottom - bounds.top;
-	const int rowCapacity = screenHeight > 102 ? (screenHeight - 102) / SequenceRowHeight : 1;
+	const int rowCapacity = (std::max)(1, (screenHeight - 126) / SequenceRowHeight);
 	const int rowsLimit = session->ManagerVisibleRows < rowCapacity
 		? session->ManagerVisibleRows : rowCapacity;
 	const int count = static_cast<int>(session->ArrivalSequence.size());
@@ -510,7 +601,7 @@ void DrawFTDiRadarOverlay(
 		visibleRows = 0;
 	if (visibleRows > rowsLimit)
 		visibleRows = rowsLimit;
-	const int panelHeight = 68 + (visibleRows > 0 ? visibleRows : 1) * SequenceRowHeight;
+	const int panelHeight = 92 + (visibleRows > 0 ? visibleRows : 1) * SequenceRowHeight;
 	const int managerHeight = session->ManagerExpanded ? 26 + panelHeight : 24;
 	if (!session->HasManagerPosition) {
 		session->ManagerPosition = {
@@ -542,6 +633,9 @@ void DrawFTDiRadarOverlay(
 	dc.FillSolidRect(launcher.left, launcher.top, 3, launcher.Height(), ConfiguredColor("COLOR_PANEL_WARNING"));
 	DrawText(dc, launcher.left + 7, launcher.top + 4,
 		"vFTDI   " + std::to_string(session->ArrivalSequence.size()), ConfiguredColor("COLOR_PANEL_HEADER_TEXT"), 8, true);
+	if (!session->ManagerExpanded && !session->AutoProposalOrder.empty())
+		DrawFittedText(dc, CRect(launcher.left + 100, launcher.top + 2, launcher.right - 30, launcher.bottom - 2),
+			"SUGGESTION", ConfiguredColor("COLOR_PANEL_WARNING"), 8, 7, true);
 	const CRect toggleButton(launcher.right - 25, launcher.top + 3, launcher.right - 4, launcher.bottom - 3);
 	DrawButton(dc, toggleButton, session->ManagerExpanded ? "-" : "+",
 		ConfiguredColor("COLOR_PANEL_CONTROL"), ConfiguredColor("COLOR_PANEL_HEADER_TEXT"));
@@ -596,8 +690,9 @@ void DrawFTDiRadarOverlay(
 		? CCallsignLookup::Lookup->getProfileNames() : std::vector<std::string>{ "ALT", "DEP" };
 	DrawProfileControl(screen, dc, CRect(panel.left + 7, panel.top + 31,
 		panel.right - 7, panel.top + 53), profiles, session->ActiveProfile);
-
-	const int rowTop = panel.top + 62;
+	DrawAutoSequenceControl(screen, dc, CRect(panel.left + 7, panel.top + 58,
+		panel.right - 7, panel.top + 78), *session);
+	const int rowTop = panel.top + 86;
 	const int rowViewportRows = visibleRows > 0 ? visibleRows : 1;
 	const int rowViewportHeight = rowViewportRows * SequenceRowHeight - 1;
 	const CRect scrollTrack(panel.right - 11, rowTop, panel.right - 4, rowTop + rowViewportHeight);
@@ -672,9 +767,11 @@ void FTDiPanelScreen::OnRefresh(HDC hDC, int Phase)
 	const auto profiles = CCallsignLookup::Available && CCallsignLookup::Lookup != nullptr
 		? CCallsignLookup::Lookup->getProfileNames() : std::vector<std::string>{ "ALT", "DEP" };
 	DrawProfileControl(this, dc, modeControl, profiles, Session->ActiveProfile);
+	DrawAutoSequenceControl(this, dc, CRect(bounds.left + 20, modeControl.bottom + 5,
+		bounds.right - 16, modeControl.bottom + 25), *Session);
 	const std::string aselCallsign = ActiveAircraftCallsign(this);
 
-	const int listTop = modeControl.bottom + 7;
+	const int listTop = modeControl.bottom + 31;
 	DrawText(dc, bounds.left + 16, listTop,
 		"SEQUENCE  " + std::to_string(Session->ArrivalSequence.size()), ConfiguredColor("COLOR_PANEL_MUTED_TEXT"), 8, true);
 	const int rowTop = listTop + 15;

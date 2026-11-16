@@ -93,6 +93,7 @@ std::string IniDirective(const std::string& section, const std::string& key)
 	const std::string normalizedKey = UppercaseIdentifier(key);
 	if (section == "GENERAL") {
 		if (normalizedKey == "MINIMUMALTITUDE") return "MINALTITUDE";
+		if (normalizedKey == "MAXDISTANCE") return "MAXAUTODISTANCE";
 		if (normalizedKey == "DEFAULTROWS") return "DEFAULTROWS";
 		if (normalizedKey == "FTDMARKERSIZE") return "FTDMARKERSIZE";
 		if (normalizedKey == "ITDMARKERSIZE") return "ITDMARKERSIZE";
@@ -125,10 +126,12 @@ std::string IniDirective(const std::string& section, const std::string& key)
 	if (section == "COLORS")
 		return "COLOR_" + normalizedKey;
 	if (sectionParts.size() == 3 && sectionParts[0] == "RUNWAYS") {
+		const std::string runway = NormalizeRunway(sectionParts[2]);
+		const std::string runwayKey = runway.empty() ? sectionParts[2] : runway;
 		if (normalizedKey == "LOCALIZERPOINTNM")
-			return "LOCALIZERPOINT_" + sectionParts[1] + "_" + sectionParts[2];
+			return "LOCALIZERPOINT_" + sectionParts[1] + "_" + runwayKey;
 		if (normalizedKey == "LOCALIZERCOURSEDEGREES")
-			return "LOCALIZERCOURSE_" + sectionParts[1] + "_" + sectionParts[2];
+			return "LOCALIZERCOURSE_" + sectionParts[1] + "_" + runwayKey;
 	}
 	if (sectionParts.size() == 2 && sectionParts[0] == "PROFILE") {
 		const auto pairParts = Split(key, '.');
@@ -142,6 +145,29 @@ std::string IniDirective(const std::string& section, const std::string& key)
 
 bool CCallsignLookup::Available = false;
 CCallsignLookup* CCallsignLookup::Lookup = nullptr;
+
+std::string CCallsignLookup::normalizeRunway(const std::string& runway)
+{
+	return NormalizeRunway(Trim(runway));
+}
+
+bool CCallsignLookup::isAutomaticArrivalRunwayEligible(const std::string& runway,
+	const std::vector<std::string>& airportRunways)
+{
+	const std::string normalized = normalizeRunway(runway);
+	if (normalized.empty())
+		return false;
+	return std::any_of(airportRunways.begin(), airportRunways.end(), [&normalized](const std::string& candidate) {
+		return normalizeRunway(candidate) == normalized;
+	});
+}
+
+bool CCallsignLookup::isConfiguredArrivalRunway(const std::string& airport, const std::string& runway) const
+{
+	const std::string normalizedAirport = UppercaseIdentifier(Trim(airport));
+	const std::string normalizedRunway = normalizeRunway(runway);
+	return !normalizedRunway.empty() && configuredRunways.find({ normalizedAirport, normalizedRunway }) != configuredRunways.end();
+}
 
 CCallsignLookup::CCallsignLookup(const std::string& fileName)
 {
@@ -159,6 +185,13 @@ CCallsignLookup::CCallsignLookup(const std::string& fileName)
 		if (line.front() == '[' && line.back() == ']') {
 			section = UppercaseIdentifier(Trim(line.substr(1, line.size() - 2)));
 			const auto sectionParts = Split(section, '.');
+			if (sectionParts.size() == 3 && sectionParts[0] == "RUNWAYS") {
+				const std::string airport = Trim(sectionParts[1]);
+				const std::string runway = normalizeRunway(sectionParts[2]);
+				if (airport.size() == 4 && std::all_of(airport.begin(), airport.end(),
+					[](unsigned char character) { return std::isalnum(character) != 0; }) && !runway.empty())
+					configuredRunways.insert({ airport, runway });
+			}
 			if (sectionParts.size() == 2 && sectionParts[0] == "PROFILE")
 				directives.push_back("#PROFILE " + sectionParts[1]);
 			continue;
@@ -329,6 +362,12 @@ CCallsignLookup::CCallsignLookup(const std::string& fileName)
 			minimumDistanceNm = value;
 		continue;
 		}
+		if (key == "MAXAUTODISTANCE") {
+			double value;
+			if (parser >> value && std::isfinite(value) && value >= 0.0)
+				maximumAutoDistanceNm = value;
+			continue;
+		}
 		if (key == "MINPARALLELDEPENDENTDISTANCE") {
 			double value;
 			if (parser >> value && std::isfinite(value) && value >= 0.0)
@@ -411,6 +450,11 @@ int CCallsignLookup::getMinimumAltitude() const
 {
 	const auto value = configValues.find("MINALTITUDE");
 	return value == configValues.end() ? 1000 : value->second;
+}
+
+double CCallsignLookup::getMaximumAutoDistanceNm() const
+{
+	return maximumAutoDistanceNm;
 }
 
 int CCallsignLookup::getDefaultVisibleRows() const
@@ -555,10 +599,17 @@ int CCallsignLookup::getFinalApproachSpeedKts(char wakeCategory) const
 bool CCallsignLookup::getLocalizerPointDistanceNm(
 	const std::string& airportCode, const std::string& runwayName, double& distanceNm) const
 {
-	std::string key = "LOCALIZERPOINT_" + airportCode + "_" + runwayName;
+	const std::string normalizedRunway = normalizeRunway(runwayName);
+	std::string key = "LOCALIZERPOINT_" + airportCode + "_" + (normalizedRunway.empty() ? runwayName : normalizedRunway);
 	std::transform(key.begin(), key.end(), key.begin(),
 		[](unsigned char value) { return static_cast<char>(std::toupper(value)); });
-	const auto value = localizerPointDistancesNm.find(key.substr(15));
+	auto value = localizerPointDistancesNm.find(key.substr(15));
+	if (value == localizerPointDistancesNm.end()) {
+		key = "LOCALIZERPOINT_" + airportCode + "_" + runwayName;
+		std::transform(key.begin(), key.end(), key.begin(),
+			[](unsigned char character) { return static_cast<char>(std::toupper(character)); });
+		value = localizerPointDistancesNm.find(key.substr(15));
+	}
 	if (value == localizerPointDistancesNm.end())
 		return false;
 	distanceNm = value->second;
@@ -568,10 +619,17 @@ bool CCallsignLookup::getLocalizerPointDistanceNm(
 bool CCallsignLookup::getLocalizerCourseDegrees(
 	const std::string& airportCode, const std::string& runwayName, double& courseDegrees) const
 {
-	std::string key = "LOCALIZERCOURSE_" + airportCode + "_" + runwayName;
+	const std::string normalizedRunway = normalizeRunway(runwayName);
+	std::string key = "LOCALIZERCOURSE_" + airportCode + "_" + (normalizedRunway.empty() ? runwayName : normalizedRunway);
 	std::transform(key.begin(), key.end(), key.begin(),
 		[](unsigned char value) { return static_cast<char>(std::toupper(value)); });
-	const auto value = localizerCoursesDegrees.find(key.substr(16));
+	auto value = localizerCoursesDegrees.find(key.substr(16));
+	if (value == localizerCoursesDegrees.end()) {
+		key = "LOCALIZERCOURSE_" + airportCode + "_" + runwayName;
+		std::transform(key.begin(), key.end(), key.begin(),
+			[](unsigned char character) { return static_cast<char>(std::toupper(character)); });
+		value = localizerCoursesDegrees.find(key.substr(16));
+	}
 	if (value == localizerCoursesDegrees.end())
 		return false;
 	courseDegrees = value->second;
@@ -620,7 +678,8 @@ CCallsignLookup::RgbColor CCallsignLookup::getDefaultColor(const std::string& ke
 		{ "COLOR_PANEL_WAKE_M", { 45, 99, 150 } },
 		{ "COLOR_PANEL_WAKE_H", { 245, 179, 45 } },
 		{ "COLOR_PANEL_WAKE_S", { 183, 43, 53 } },
-		{ "COLOR_TAG_SEQUENCE_NUMBER", { 205, 100, 0 } }
+		{ "COLOR_TAG_SEQUENCE_NUMBER", { 205, 100, 0 } },
+		{ "COLOR_TAG_SEQUENCE_SUGGESTION", { 145, 55, 190 } }
 	};
 	if (key == "COLOR_FTD_ROUTE")
 		return getDefaultColor("COLOR_FTD_TARGET");

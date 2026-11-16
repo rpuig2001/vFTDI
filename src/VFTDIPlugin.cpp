@@ -16,6 +16,9 @@ std::atomic<bool> SequenceSelectionActive{ false };
 std::atomic<bool> SequencePickArmed{ false };
 std::atomic<bool> SequenceAircraftClickRequested{ false };
 std::atomic<bool> SequenceCancelRequested{ false };
+std::atomic<bool> SuggestionMenuActive{ false };
+std::atomic<unsigned long long> SuggestionMenuGeneration{ 0 };
+std::atomic<unsigned long long> SuggestionMenuDismissedGeneration{ 0 };
 
 VFTDIPlugin::VFTDIPlugin()
     : CPlugIn(COMPATIBILITY_CODE,
@@ -52,6 +55,9 @@ VFTDIPlugin::VFTDIPlugin()
         bool altWWasDown = false;
         bool leftWasDown = false;
         bool rightWasDown = false;
+        SuggestionMenuDismissDetector suggestionDismissal;
+        unsigned long long observedSuggestionGeneration = 0;
+        unsigned long long reportedDismissalGeneration = 0;
         while (!StopKeyPolling.load()) {
             DWORD foregroundProcess = 0;
             const HWND foregroundWindow = GetForegroundWindow();
@@ -71,6 +77,20 @@ VFTDIPlugin::VFTDIPlugin()
 				(GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
             const bool rightDown = isForeground && selectionActive &&
                 (GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0;
+            const bool suggestionActive = SuggestionMenuActive.load();
+            const unsigned long long suggestionGeneration = SuggestionMenuGeneration.load();
+            if (suggestionGeneration != observedSuggestionGeneration) {
+                suggestionDismissal.Reset();
+                observedSuggestionGeneration = suggestionGeneration;
+            }
+            const bool suggestionRightDown = isForeground && (GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0;
+            const bool suggestionMiddleDown = isForeground && (GetAsyncKeyState(VK_MBUTTON) & 0x8000) != 0;
+            const bool escapeDown = isForeground && (GetAsyncKeyState(VK_ESCAPE) & 0x8000) != 0;
+            if (suggestionDismissal.Update(suggestionActive, isForeground, leftDown, suggestionRightDown, suggestionMiddleDown, escapeDown) &&
+                reportedDismissalGeneration != suggestionGeneration && SuggestionMenuGeneration.load() == suggestionGeneration) {
+                SuggestionMenuDismissedGeneration.store(suggestionGeneration);
+                reportedDismissalGeneration = suggestionGeneration;
+            }
             if (!selectionActive)
                 SequencePickArmed.store(false);
             else if (!leftDown)
@@ -136,15 +156,21 @@ void VFTDIPlugin::OnGetTagItem(CFlightPlan FlightPlan, CRadarTarget RadarTarget,
 {
     UNREFERENCED_PARAMETER(TagData);
     UNREFERENCED_PARAMETER(pFontSize);
-    if (ItemCode != TAG_ITEM_SEQUENCE_NUMBER)
+    if (ItemCode != TAG_ITEM_SEQUENCE_NUMBER && ItemCode != TAG_ITEM_SEQUENCE_SUGGESTION)
         return;
     sItemString[0] = '\0';
     *pColorCode = TAG_COLOR_RGB_DEFINED;
-    *pRGB = ConfiguredColor("COLOR_TAG_SEQUENCE_NUMBER");
+    *pRGB = ConfiguredColor(ItemCode == TAG_ITEM_SEQUENCE_NUMBER ? "COLOR_TAG_SEQUENCE_NUMBER" : "COLOR_TAG_SEQUENCE_SUGGESTION");
     const char* callsign = FlightPlan.IsValid() ? FlightPlan.GetCallsign()
         : (RadarTarget.IsValid() ? RadarTarget.GetCallsign() : nullptr);
     if (callsign == nullptr)
         return;
+    if (ItemCode == TAG_ITEM_SEQUENCE_SUGGESTION) {
+        if (SequenceProposalInvolves(Session->ArrivalSequence, Session->AutoProposalBase,
+            Session->AutoProposalOrder, callsign))
+            std::snprintf(sItemString, 16, "SUG");
+        return;
+    }
     const size_t number = SequenceNumber(Session->ArrivalSequence, callsign);
     if (number != 0)
         std::snprintf(sItemString, 16, "%02zu", number);
@@ -153,6 +179,100 @@ void VFTDIPlugin::OnGetTagItem(CFlightPlan FlightPlan, CRadarTarget RadarTarget,
 void VFTDIPlugin::OnFunctionCall(int FunctionId, const char* sItemString, POINT Pt, RECT Area)
 {
     UNREFERENCED_PARAMETER(Pt);
+    if (FunctionId == FUNCTION_SEQUENCE_SUGGESTION_TAG) {
+        const CFlightPlan flightPlan = FlightPlanSelectASEL();
+        const CRadarTarget radarTarget = RadarTargetSelectASEL();
+        const char* callsign = flightPlan.IsValid() ? flightPlan.GetCallsign()
+            : (radarTarget.IsValid() ? radarTarget.GetCallsign() : nullptr);
+        if (callsign != nullptr && SequenceProposalInvolves(Session->ArrivalSequence,
+            Session->AutoProposalBase, Session->AutoProposalOrder, callsign))
+            OpenAutoSuggestionMenu(this, *Session, Area);
+        return;
+    }
+    if (FunctionId == FUNCTION_AUTO_ACCEPT || FunctionId == FUNCTION_AUTO_DECLINE) {
+        const bool current = IsSameLiveSequenceProposal(Session->ArrivalSequence,
+            Session->AutoProposalBase, Session->AutoProposalOrder,
+            Session->PendingAutoDecisionBase, Session->PendingAutoDecisionOrder);
+        if (!current) {
+            Session->PendingAutoDecisionBase.clear();
+            Session->PendingAutoDecisionOrder.clear();
+            return;
+        }
+        SuggestionMenuActive.store(false);
+        SuggestionMenuDismissedGeneration.store(0);
+        Session->AutoPreviewBase.clear();
+        Session->AutoPreviewOrder.clear();
+        if (Session->AutoPreviewRadarScreen != nullptr)
+            Session->AutoPreviewRadarScreen->RequestRefresh();
+        if (FunctionId == FUNCTION_AUTO_ACCEPT) {
+            Session->AutoAcceptRequested = true;
+        }
+        else {
+            Session->AutoRejectedBase = Session->AutoProposalBase;
+            Session->AutoRejectedOrders.push_back(Session->AutoProposalOrder);
+            Session->AutoProposalOrder.clear();
+            Session->AutoProposalBase.clear();
+            Session->AutoAcceptRequested = false;
+            Session->AutoNextEvaluationSeconds = GetTickCount64() / 1000.0 + AutoSequenceDecisionCooldownSeconds;
+            Session->AutoLastEvaluationBase = Session->ArrivalSequence;
+            Session->AutoSequenceStatus = "Paused after declined suggestion";
+            Session->PendingAutoDecisionBase.clear();
+            Session->PendingAutoDecisionOrder.clear();
+        }
+        return;
+    }
+    if (FunctionId == FUNCTION_AUTO_CHANGE) {
+        OpenPopupEdit(Area, FUNCTION_AUTO_AIRPORT, Session->AutoSequenceAirport.c_str());
+        return;
+    }
+    if (FunctionId == FUNCTION_AUTO_DISABLE) {
+        SuggestionMenuActive.store(false);
+        Session->AutoSequenceAirport.clear();
+        Session->AutoSequenceStatus.clear();
+        Session->AutoAddedCallsigns.clear();
+        Session->AutoProposalOrder.clear();
+        Session->AutoProposalBase.clear();
+        Session->PendingAutoDecisionBase.clear();
+        Session->PendingAutoDecisionOrder.clear();
+        Session->AutoPreviewBase.clear();
+        Session->AutoPreviewOrder.clear();
+        Session->AutoRejectedOrders.clear();
+        Session->AutoRejectedBase.clear();
+        Session->AutoAcceptRequested = false;
+        return;
+    }
+    if (FunctionId == FUNCTION_AUTO_AIRPORT) {
+        if (sItemString == nullptr)
+            return;
+        std::string airport(sItemString);
+        const size_t first = airport.find_first_not_of(" \t\r\n");
+        const size_t last = airport.find_last_not_of(" \t\r\n");
+        if (first == std::string::npos)
+            return;
+        airport = airport.substr(first, last - first + 1);
+        std::transform(airport.begin(), airport.end(), airport.begin(),
+            [](unsigned char value) { return static_cast<char>(std::toupper(value)); });
+        if (airport.size() != 4 || !std::all_of(airport.begin(), airport.end(),
+            [](unsigned char value) { return value >= 'A' && value <= 'Z'; })) {
+            DisplayUserMessage(PLUGIN_NAME.c_str(), "Sequence", "Enter a four-letter airport ICAO code", true, false, false, false, false);
+            return;
+        }
+        Session->AutoSequenceAirport = airport;
+        SuggestionMenuActive.store(false);
+        Session->AutoSequenceStatus = "Scanning arrivals";
+        Session->AutoNextEvaluationSeconds = 0.0;
+        Session->AutoLastEvaluationBase.clear();
+        Session->AutoProposalOrder.clear();
+        Session->AutoProposalBase.clear();
+        Session->PendingAutoDecisionBase.clear();
+        Session->PendingAutoDecisionOrder.clear();
+        Session->AutoPreviewBase.clear();
+        Session->AutoPreviewOrder.clear();
+        Session->AutoRejectedOrders.clear();
+        Session->AutoRejectedBase.clear();
+        Session->AutoAcceptRequested = false;
+        return;
+    }
     if (FunctionId == FUNCTION_SEQUENCE_MOVE_CANCEL) {
         PendingTagMoveCallsign.clear();
         Session->PendingSequenceMoveCallsign.clear();
@@ -294,7 +414,9 @@ void VFTDIPlugin::RegisterPlugin() {
     RegisterDisplayType(VFTDI_RADAR_SCREEN_VIEW, true, true, true, true);
     RegisterDisplayType(VFTDI_PANEL_SCREEN_VIEW, false, false, true, true);
     RegisterTagItemType("Sequence Number", TAG_ITEM_SEQUENCE_NUMBER);
+    RegisterTagItemType("Sequence Suggestion", TAG_ITEM_SEQUENCE_SUGGESTION);
     RegisterTagItemFunction("Sequence Move/Pick", FUNCTION_SEQUENCE_TAG_MOVE_PICK);
     RegisterTagItemFunction("Cancel Sequence Move", FUNCTION_SEQUENCE_MOVE_CANCEL);
     RegisterTagItemFunction("Toggle Targets", FUNCTION_SEQUENCE_TAG_TOGGLE_TARGETS);
+    RegisterTagItemFunction("Sequence Suggestion", FUNCTION_SEQUENCE_SUGGESTION_TAG);
 }

@@ -4,12 +4,37 @@
 #include <string>
 
 namespace PredictionStability {
-	enum class TurnCue { Countdown, Soon, Now };
+	enum class TurnCue { Countdown, Now, NoDelay };
 
 	inline TurnCue EarliestTurnCue(double secondsToTurn)
 	{
-		return secondsToTurn <= 0.001 ? TurnCue::Now : (secondsToTurn <= 15.0 ? TurnCue::Soon : TurnCue::Countdown);
+		return secondsToTurn > 10.0 ? TurnCue::Countdown :
+			(secondsToTurn >= -10.0 ? TurnCue::Now : TurnCue::NoDelay);
 	}
+
+	struct TurnNowWindow {
+		bool Initialized = false;
+		double DeadlineSeconds = 0.0;
+		double LastSeconds = 0.0;
+		std::string Context;
+
+		void Reset()
+		{
+			Initialized = false;
+		}
+
+		double Update(double secondsToTurn, double nowSeconds, const std::string& context)
+		{
+			if (!Initialized || context != Context || secondsToTurn > 0.001 || nowSeconds < LastSeconds)
+				DeadlineSeconds = nowSeconds + secondsToTurn;
+			else if (nowSeconds < DeadlineSeconds)
+				DeadlineSeconds = nowSeconds;
+			Context = context;
+			LastSeconds = nowSeconds;
+			Initialized = true;
+			return DeadlineSeconds - nowSeconds;
+		}
+	};
 
 	inline double HeadingDifference(double degrees)
 	{

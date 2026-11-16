@@ -26,7 +26,7 @@ int main(int argumentCount, char** arguments)
 		"COLOR_PANEL_WARNING", "COLOR_PANEL_DISABLED", "COLOR_PANEL_REMOVE_BACKGROUND",
 		"COLOR_PANEL_REMOVE_TEXT", "COLOR_PANEL_STATUS_WARNING", "COLOR_PANEL_CONTROL",
 		"COLOR_PANEL_WAKE_L", "COLOR_PANEL_WAKE_M", "COLOR_PANEL_WAKE_H", "COLOR_PANEL_WAKE_S",
-		"COLOR_TAG_SEQUENCE_NUMBER"
+		"COLOR_TAG_SEQUENCE_NUMBER", "COLOR_TAG_SEQUENCE_SUGGESTION"
 	};
 	{
 		std::ofstream config(path);
@@ -75,6 +75,7 @@ int main(int argumentCount, char** arguments)
 	CheckColor(CCallsignLookup::getDefaultColor("COLOR_PANEL_WAKE_H"), 245, 179, 45, "heavy category default");
 	CheckColor(CCallsignLookup::getDefaultColor("COLOR_PANEL_WAKE_S"), 183, 43, 53, "super category default");
 	CheckColor(CCallsignLookup::getDefaultColor("COLOR_TAG_SEQUENCE_NUMBER"), 205, 100, 0, "sequence TAG dark orange default");
+	CheckColor(CCallsignLookup::getDefaultColor("COLOR_TAG_SEQUENCE_SUGGESTION"), 145, 55, 190, "suggestion TAG purple default");
 	{
 		std::ofstream config(path);
 		config << "[general]\nftdMarkerSize = 999\nitdMarkerSize = -5\n";
@@ -90,5 +91,5 @@ int main(int argumentCount, char** arguments)
 	if (invalid.getMarkerSizePixels(true) != 26 || invalid.getMarkerSizePixels(false) != 22)
 		return 1;
 	std::remove(path);
-	std::cout << "All marker-size hierarchy/limits and 30 color configuration checks passed.\n";
+	std::cout << "All marker-size hierarchy/limits and 31 color configuration checks passed.\n";
 }

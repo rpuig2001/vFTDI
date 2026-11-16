@@ -15,7 +15,8 @@ public:
 	~AirportWeatherService();
 
 	double GetGroundSpeedKts(
-		EuroScopePlugIn::CPosition position, double trackHeading, double indicatedSpeedKts) const;
+		EuroScopePlugIn::CPosition position, double trackHeading, double indicatedSpeedKts,
+		bool* hasWind = nullptr) const;
 
 private:
 	struct Observation {

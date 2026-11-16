@@ -14,11 +14,68 @@ void Check(bool condition, const char* message)
 int main()
 {
 	using namespace TurningPointMath;
+	TurnRoute loopCheck;
+	loopCheck.BeforeFinalNm = 10.0;
+	loopCheck.FinalNm = 12.0;
+	loopCheck.FirstTurnRadians = Pi;
+	loopCheck.FinalTurnRadians = Pi;
+	Check(IsPlausibleTurnRoute(loopCheck), "turns up to 180 degrees are within the modeled limit");
+	loopCheck.FirstTurnRadians = Pi + 0.01;
+	Check(!IsPlausibleTurnRoute(loopCheck), "a loop over 180 degrees is not a usable planning route");
+	loopCheck.FirstTurnRadians = 0.0;
+	loopCheck.FinalTurnRadians = 2.0 * Pi - 0.01;
+	Check(!IsPlausibleTurnRoute(loopCheck), "a near-full-circle final turn is not a usable planning route");
+	bool foundGeneratedLoop = false;
+	for (double outward : { 10.0, 12.0, 14.0, 16.0, 20.0 }) {
+		for (double crossTrack : { -5.0, -2.0, 0.0, 2.0, 5.0 }) {
+			for (int headingDegrees = -180; headingDegrees <= 180; headingDegrees += 30) {
+				TurnRoute candidate;
+				if (BuildCurvedRoute(outward, crossTrack, headingDegrees * Pi / 180.0, 0.0, 14.0, candidate, 220.0) &&
+					(candidate.FirstTurnRadians > Pi || candidate.FinalTurnRadians > Pi)) {
+					TurnRoute fallback;
+					Check(!IsPlausibleTurnRoute(candidate) &&
+						BuildRoute(outward, crossTrack, headingDegrees * Pi / 180.0, 220.0, 0.0, 14.0, fallback) &&
+						fallback.StraightFallback && std::abs(fallback.BeforeFinalNm - fallback.DirectDistanceNm) < 1.0e-9 &&
+						std::abs(RouteCurvePoint(fallback, 0.5).OutwardNm - (outward + 14.0) / 2.0) < 1.0e-9 &&
+						std::abs(RouteCurvePoint(fallback, 0.5).CrossTrackNm - crossTrack / 2.0) < 1.0e-9,
+						"a generated looping route uses a straight path and consistent distance");
+					foundGeneratedLoop = true;
+				}
+			}
+		}
+	}
+	Check(foundGeneratedLoop, "representative localizer geometries include a generated looping route");
+	Check(std::abs(GroundSpeedForTrackKts(200.0, 0.0, 0.0, 20.0) - 180.0) < 1.0e-9 &&
+		std::abs(GroundSpeedForTrackKts(200.0, 0.0, 180.0, 20.0) - 220.0) < 1.0e-9,
+		"headwind and tailwind adjust the modeled groundspeed");
+	Check(std::abs(GroundSpeedForTrackKts(200.0, 0.0, 90.0, 40.0) - std::sqrt(200.0 * 200.0 - 40.0 * 40.0)) < 1.0e-9 &&
+		std::abs(GroundSpeedForTrackKts(200.0, 0.0, 270.0, 200.0)) < 1.0e-9 &&
+		GroundSpeedForTrackKts(200.0, 0.0, 270.0, 201.0) == 0.0,
+		"crosswind correction accounts for track holding and rejects impossible winds");
+	Check(GroundSpeedForTrackKts(200.0, 0.0, 0.0, 0.0) == 200.0 &&
+		GroundSpeedForTrackKts(200.0, 0.0, 0.0, -1.0) == 0.0,
+		"calm and invalid wind inputs are handled explicitly");
 	const double dependentAlongTrackNm = LongitudinalComponentForDirectDistanceNm(5.0, 3.0);
 	Check(std::abs(std::hypot(dependentAlongTrackNm, 3.0) - 5.0) < 1.0e-9,
 		"parallel dependent target uses the configured direct distance");
 	Check(LongitudinalComponentForDirectDistanceNm(5.0, 6.0) == 0.0,
 		"cross-track distance alone can satisfy a smaller direct separation minimum");
+	const double dependentFloorNm = DependentTargetFloorNm(12.0, 1.0, 2.0);
+	Check(std::abs(std::hypot(dependentFloorNm - 12.0, 1.0) - 2.0) < 1.0e-9,
+		"dependent FTD floor stays the required direct distance behind the upstream ITD marker");
+	Check(DependentTargetFloorNm(12.0, -3.0, 2.0) == 12.0 &&
+		DependentTargetFloorNm(12.0, -1.0, 3.0) > dependentFloorNm,
+		"dependent floors account for marker cross-track distance and increased ITD spacing");
+	const double expectedPositionFloorNm = DependentTargetFloorNm(20.0, 0.8, 2.0);
+	Check(expectedPositionFloorNm > 20.0 &&
+		std::abs(std::hypot(expectedPositionFloorNm - 20.0, 0.8) - 2.0) < 1.0e-9 &&
+		DependentTargetFloorNm(20.0, 10.8, 2.0) == 20.0,
+		"cleared dependent spacing uses the expected marker's localizer offset, not the distant aircraft offset");
+	const double expectedFtdNm = DependentTargetFloorNm(20.0, 0.8, 2.0);
+	const double expectedItdNm = DependentTargetFloorNm(20.0, 0.8, 2.5);
+	Check(std::hypot(expectedFtdNm - 20.0, 0.8) >= 2.0 - 1.0e-9 &&
+		std::hypot(expectedItdNm - 20.0, 0.8) >= 2.5 - 1.0e-9 && expectedItdNm >= expectedFtdNm,
+		"dependent FTD and ITD respect spacing from the expected marker with compression");
 	Check(MarkerDistanceNm(10.0, 10.0, 12.0, 1.5) == 13.5, "FTD stays behind stagger-corrected leader");
 	Check(MarkerDistanceNm(16.0, 12.0, 12.0, 4.0) == 20.0, "longer modeled route remains target reference");
 	Check(MarkerDistanceNm(10.0, 10.0, 12.0, 6.0) >= MarkerDistanceNm(10.0, 10.0, 12.0, 4.0),
@@ -70,23 +127,23 @@ int main()
 		std::abs(straightRoute.BeforeFinalNm - 6.0) < 1.0e-9,
 		"an aircraft aligned with final adds no turn distance");
 	TurnRoute oppositeRoute;
-	Check(BuildRoute(20.0, 0.0, 0.0, 220.0, 0.0, 14.0, oppositeRoute) &&
+	Check(BuildCurvedRoute(20.0, 0.0, 0.0, 0.0, 14.0, oppositeRoute, 220.0) &&
 		std::abs(RouteCurvePoint(oppositeRoute, 0.5).CrossTrackNm) > 0.5 &&
 		oppositeRoute.BeforeFinalNm > oppositeRoute.DirectDistanceNm,
 		"opposite-direction aircraft turns visibly instead of retracing the same line");
-	Check(BuildRoute(10.0, 0.0, 0.0, 220.0, 0.0, 14.0, oppositeRoute) &&
+	Check(BuildCurvedRoute(10.0, 0.0, 0.0, 0.0, 14.0, oppositeRoute, 220.0) &&
 		std::abs(RouteCurvePoint(oppositeRoute, 0.5).CrossTrackNm) > 0.5 &&
 		oppositeRoute.BeforeFinalNm > oppositeRoute.DirectDistanceNm,
 		"opposite-direction join bends visibly before reversing onto final");
 	TurnRoute nearCenterline;
-	Check(BuildRoute(20.0, -0.02, 0.0, 220.0, 0.0, 14.0, nearCenterline) &&
+	Check(BuildCurvedRoute(20.0, -0.02, 0.0, 0.0, 14.0, nearCenterline, 220.0) &&
 		RouteCurvePoint(nearCenterline, 0.5).CrossTrackNm > 0.5 &&
-		BuildRoute(20.0, 0.02, 0.0, 220.0, 0.0, 14.0, nearCenterline) &&
+		BuildCurvedRoute(20.0, 0.02, 0.0, 0.0, 14.0, nearCenterline, 220.0) &&
 		RouteCurvePoint(nearCenterline, 0.5).CrossTrackNm > 0.5,
 		"small centerline position changes do not flip the reversal turn");
 	for (int side : { -1, 1 }) {
 		TurnRoute longReversal;
-		Check(BuildRoute(-35.0, side * 20.0, 0.0, 220.0, 0.0, 14.0, longReversal),
+		Check(BuildCurvedRoute(-35.0, side * 20.0, 0.0, 0.0, 14.0, longReversal, 220.0),
 			"long opposite-side approach builds a route");
 		const RoutePoint lastSample = RouteCurvePoint(longReversal,
 			static_cast<double>(RouteCurveSegments - 1) / RouteCurveSegments);
@@ -120,6 +177,12 @@ int main()
 		"invalid coordinates are not modeled");
 	const SpeedProfile speed{ 220.0, 220.0, 170.0, 130.0, 5.0, 999.0 };
 	const SpeedProfile leaderSpeed{ 200.0, 200.0, 170.0, 150.0, 5.0, 999.0 };
+	const ItdTarget straightTarget{ 0.0, 0.0, 14.0, leaderSpeed, 0.0 };
+	TurnRoute straightRecommendation;
+	Check(FindEarliestItdTurnPoint(20.0, 0.0, 0.0, 14.0, speed, straightTarget, straightRecommendation) &&
+		straightRecommendation.StraightFallback && straightRecommendation.StartDistanceNm == 0.0 &&
+		std::abs(straightRecommendation.BeforeFinalNm - 6.0) < 1.0e-9,
+		"turn timing uses the straight fallback instead of suppressing a looping route");
 	TurnRoute reference;
 	Check(BuildRoute(12.0, 5.0, 0.0, speed.CurrentKts, 3.0, 18.0, reference), "future direct route");
 	const ItdTarget target{ reference.BeforeFinalNm + reference.FinalNm +
@@ -128,6 +191,7 @@ int main()
 	Check(FindEarliestItdTurnPoint(12.0, 5.0, 0.0, 18.0, speed, target, earliest), "earliest direct-to-point recommendation");
 	Check(std::abs(earliest.StartDistanceNm - 3.0) < 1.0e-5 && ItdDeliveryErrorNm(earliest, speed, target) >= 0.0,
 		"earliest point reaches required ITD spacing using the curved route");
+	Check(IsPlausibleTurnRoute(earliest), "turn recommendations do not use looping routes");
 	ItdTarget largerTarget = target;
 	largerTarget.SlotDistanceNm += 2.0;
 	TurnRoute later;
@@ -190,6 +254,17 @@ int main()
 		}
 	}
 	const SpeedProfile delayedReduction{ 240.0, 220.0, 170.0, 130.0, 5.0, 999.0, 12.0 };
+	Check(CurrentPhaseSpeedKts(4.0, 14.0, delayedReduction) == 240.0 &&
+		CurrentPhaseSpeedKts(0.0, 12.0, delayedReduction) == 170.0 &&
+		CurrentPhaseSpeedKts(0.0, 5.0, delayedReduction) == 130.0,
+		"current modeled speed follows the cleared speed boundaries");
+	const SpeedProfile phaseSpeeds{ 240.0, 220.0, 170.0, 130.0, 5.0, 20.0 };
+	Check(CurrentPhaseSpeedKts(10.0, 14.0, phaseSpeeds) == 240.0 &&
+		CurrentPhaseSpeedKts(6.0, 14.0, phaseSpeeds) == 220.0 &&
+		CurrentPhaseSpeedKts(0.0, 14.0, phaseSpeeds) == 170.0 &&
+		CurrentPhaseSpeedKts(0.0, 5.0, phaseSpeeds) == 130.0 &&
+		CurrentPhaseSpeedKts(-1.0, 5.0, phaseSpeeds) < 0.0,
+		"current modeled speed follows each route phase and rejects invalid geometry");
 	Check(ClearedSpeedBoundaryNm(true, false, 12.0, 5.0) == 12.0 &&
 		ClearedSpeedBoundaryNm(true, true, 12.0, 5.0) == 0.0 &&
 		ClearedSpeedBoundaryNm(false, false, 12.0, 5.0) == 0.0,

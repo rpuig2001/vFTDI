@@ -1,7 +1,9 @@
 #pragma once
 
 #include <map>
+#include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 class CCallsignLookup
@@ -22,6 +24,11 @@ public:
 	explicit CCallsignLookup(const std::string& fileName);
 	int getValue(const std::string& key) const;
 	int getMinimumAltitude() const;
+	static std::string normalizeRunway(const std::string& runway);
+	static bool isAutomaticArrivalRunwayEligible(const std::string& runway,
+		const std::vector<std::string>& airportRunways);
+	bool isConfiguredArrivalRunway(const std::string& airport, const std::string& runway) const;
+	double getMaximumAutoDistanceNm() const;
 	int getDefaultVisibleRows() const;
 	int getMarkerSizePixels(bool finalTarget) const;
 	double getMinimumDistanceNm() const;
@@ -60,6 +67,7 @@ private:
 	std::map<std::string, RgbColor> markerColors;
 	std::map<std::string, double> localizerPointDistancesNm;
 	std::map<std::string, double> localizerCoursesDegrees;
+	std::set<std::pair<std::string, std::string>> configuredRunways;
 	std::map<std::string, RunwayPairMode> legacyRunwayPairModes;
 	std::map<std::string, std::map<std::string, RunwayPairMode>> profileRunwayPairModes;
 	std::vector<std::string> profileNames;
@@ -85,6 +93,7 @@ private:
 		{ "RECAT_F_F", 3.0 }
 	};
 	double minimumDistanceNm = 3.0;
+	double maximumAutoDistanceNm = 0.0;
 	double minimumParallelDependentDistanceNm = 3.0;
 	double finalBufferNm = 1.0;
 	double longApproachNm = 0.0;

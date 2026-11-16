@@ -14,10 +14,25 @@ void Check(bool condition, const char* message)
 int main()
 {
 	using namespace PredictionStability;
-	Check(EarliestTurnCue(16.0) == TurnCue::Countdown, "countdown before earliest-turn warning window");
-	Check(EarliestTurnCue(15.0) == TurnCue::Soon, "fifteen-second cue warns without saying turn is permitted now");
-	Check(EarliestTurnCue(1.0) == TurnCue::Soon, "no TURN NOW before the earliest permitted point");
-	Check(EarliestTurnCue(0.0) == TurnCue::Now, "TURN NOW only at the earliest permitted point");
+	Check(EarliestTurnCue(10.01) == TurnCue::Countdown, "countdown before earliest-turn warning window");
+	Check(EarliestTurnCue(10.0) == TurnCue::Now && EarliestTurnCue(0.0) == TurnCue::Now &&
+		EarliestTurnCue(-10.0) == TurnCue::Now, "TURN NOW spans ten seconds before and after the modeled point");
+	Check(EarliestTurnCue(-10.01) == TurnCue::NoDelay, "TURN NOW expires after ten seconds past the point");
+	TurnNowWindow turnWindow;
+	Check(turnWindow.Update(10.0, 100.0, "pair") == 10.0 &&
+		turnWindow.Update(0.0, 110.0, "pair") == 0.0 &&
+		turnWindow.Update(0.0, 120.0, "pair") == -10.0 &&
+		turnWindow.Update(0.0, 121.0, "pair") == -11.0,
+		"zero-delay solutions retain the original deadline without restarting the window");
+	Check(turnWindow.Update(0.0, 127.0, "new pair") == 0.0 &&
+		turnWindow.Update(20.0, 128.0, "new pair") == 20.0,
+		"changed context and a new future solution reset the deadline");
+	turnWindow.Reset();
+	Check(!turnWindow.Initialized, "clearance or invalid prediction clears the turn-now window");
+	Check(turnWindow.Update(0.0, 200.0, "pair") == 0.0 &&
+		turnWindow.Update(0.0, 216.0, "pair") == -16.0 &&
+		turnWindow.Update(0.0, 100.0, "pair") == 0.0,
+		"a first zero-delay solution starts one window and a backwards clock resets it");
 	Check(CanRecommendTurn(false, false), "uncleared follower may receive predictions regardless of overlay visibility");
 	Check(!CanRecommendTurn(true, false), "approach clearance immediately suppresses recommendations");
 	Check(!CanRecommendTurn(true, true), "clearance suppression applies on final too");

@@ -18,6 +18,19 @@ void CheckRows(const char* path, const char* text, int expected)
 	}
 }
 
+void CheckMaximumDistance(const char* path, const char* text, double expected)
+{
+	{
+		std::ofstream config(path);
+		config << text;
+	}
+	CCallsignLookup config(path);
+	if (config.getMaximumAutoDistanceNm() != expected) {
+		std::cerr << "FAIL: expected maximum auto distance " << expected << " for " << text << '\n';
+		std::exit(1);
+	}
+}
+
 int main(int argumentCount, char** arguments)
 {
 	if (argumentCount != 2 && argumentCount != 3)
@@ -35,6 +48,72 @@ int main(int argumentCount, char** arguments)
 	CheckRows(path, "[general]\ndefaultRows = 6\ndefaultRows = invalid\n", 6);
 	CheckRows(path, "[general]\ndefaultRows = 6\ndefaultRows = 8\n", 8);
 	CheckRows(path, "[general]\ndefaultRows = 999999999999999999999\n", 3);
+	CheckMaximumDistance(path, "", 0.0);
+	CheckMaximumDistance(path, "[general]\nmaxDistance = 120.5\n", 120.5);
+	CheckMaximumDistance(path, "[general]\nmaxDistance = 0\n", 0.0);
+	CheckMaximumDistance(path, "[general]\nmaxDistance = -10\n", 0.0);
+	CheckMaximumDistance(path, "[general]\nmaxDistance = invalid\n", 0.0);
+	CheckMaximumDistance(path, "[general]\nmaxDistance = 120\nmaxDistance = invalid\n", 120.0);
+	const std::vector<std::string> availableRunways = { "07L", "25R" };
+	if (CCallsignLookup::isAutomaticArrivalRunwayEligible("", availableRunways) ||
+		CCallsignLookup::isAutomaticArrivalRunwayEligible("25L", availableRunways) ||
+		CCallsignLookup::isAutomaticArrivalRunwayEligible("00L", availableRunways) ||
+		CCallsignLookup::isAutomaticArrivalRunwayEligible("25R", {}) ||
+		!CCallsignLookup::isAutomaticArrivalRunwayEligible(" 7l ", availableRunways) ||
+		!CCallsignLookup::isAutomaticArrivalRunwayEligible("25r", availableRunways)) {
+		std::cerr << "FAIL: automatic arrivals require an assigned runway available at the selected airport\n";
+		return 1;
+	}
+	{
+		std::ofstream config(path);
+		config << "[runways.EDDF.07L]\nlocalizerPointNm = 18\nlocalizerCourseDegrees = 69\n";
+	}
+	CCallsignLookup normalizedRunwayConfig(path);
+	double localizerDistance = 0.0;
+	double localizerCourse = 0.0;
+	if (!normalizedRunwayConfig.getLocalizerPointDistanceNm("eddf", "7l", localizerDistance) || localizerDistance != 18.0 ||
+		!normalizedRunwayConfig.getLocalizerCourseDegrees("eddf", "7l", localizerCourse) || localizerCourse != 69.0) {
+		std::cerr << "FAIL: normalized arrival runway must use its configured localizer settings\n";
+		return 1;
+	}
+	{
+		std::ofstream config(path);
+		config << "[runways.EDDF.7L]\nlocalizerPointNm = 17\nlocalizerCourseDegrees = 70\n";
+	}
+	CCallsignLookup shortRunwayConfig(path);
+	if (!shortRunwayConfig.getLocalizerPointDistanceNm("EDDF", "07L", localizerDistance) || localizerDistance != 17.0 ||
+		!shortRunwayConfig.getLocalizerCourseDegrees("EDDF", "07L", localizerCourse) || localizerCourse != 70.0) {
+		std::cerr << "FAIL: short runway config sections must match normalized runway assignments\n";
+		return 1;
+	}
+	{
+		std::ofstream config(path);
+		config << "[runways.EDDF.07L]\nlocalizerPointNm = 18\n[runways.EDDF.25R]\nlocalizerPointNm = 14\n";
+		config << "[runways.LEPA.24L]\nlocalizerPointNm = 10\n[runways.EDDF.00L]\nlocalizerPointNm = 9\n";
+	}
+	CCallsignLookup configuredRunways(path);
+	if (!configuredRunways.isConfiguredArrivalRunway("eddf", "7l") ||
+		!configuredRunways.isConfiguredArrivalRunway("EDDF", "25R") ||
+		!configuredRunways.isConfiguredArrivalRunway("LEPA", "24L") ||
+		configuredRunways.isConfiguredArrivalRunway("EDDF", "24L") ||
+		configuredRunways.isConfiguredArrivalRunway("LEPA", "25R") ||
+		configuredRunways.isConfiguredArrivalRunway("EDDF", "00L") ||
+		configuredRunways.isConfiguredArrivalRunway("EDDF", "")) {
+		std::cerr << "FAIL: automatic arrivals require a runway configured for their destination airport\n";
+		return 1;
+	}
+	const auto automaticRunwayAllowed = [&configuredRunways](const std::string& airport, const std::string& runway,
+		const std::vector<std::string>& sectorRunways) {
+		return configuredRunways.isConfiguredArrivalRunway(airport, runway) &&
+			CCallsignLookup::isAutomaticArrivalRunwayEligible(runway, sectorRunways);
+	};
+	if (!automaticRunwayAllowed("EDDF", "7L", { "07L", "25L" }) ||
+		automaticRunwayAllowed("EDDF", "25L", { "07L", "25L" }) ||
+		automaticRunwayAllowed("EDDF", "25R", { "07L", "25L" }) ||
+		automaticRunwayAllowed("EDDF", "24L", { "24L" })) {
+		std::cerr << "FAIL: automatic arrivals require a runway configured for their airport and available in the sector\n";
+		return 1;
+	}
 	std::vector<std::string> sequence = { "ALPHA", "BRAVO", "CHARLIE", "DELTA" };
 	if (SequenceNumber(sequence, "ALPHA") != 1 || SequenceNumber(sequence, "DELTA") != 4 ||
 		SequenceNumber(sequence, "MISSING") != 0 || SequenceNumber({}, "ALPHA") != 0) {

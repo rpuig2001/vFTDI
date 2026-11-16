@@ -31,6 +31,7 @@ struct WakeMeasurement {
 	std::string TurnStatus;
 	std::string TurnStatusDetail;
 	PredictionStability::TurnTiming PlanningTurnTiming;
+	PredictionStability::TurnNowWindow PlanningTurnNowWindow;
 };
 
 struct FTDiSession {
@@ -38,6 +39,26 @@ struct FTDiSession {
 	std::map<std::string, int> FinalApproachSpeedOverridesKts;
 	std::vector<WakeMeasurement> WakeMeasurements;
 	std::map<std::string, PredictionStability::Motion> PlanningMotion;
+	std::map<std::string, double> ModeledGroundSpeedKts;
+	std::map<std::string, bool> ModeledSpeedHasWind;
+	std::string AutoSequenceAirport;
+	std::string AutoSequenceStatus;
+	bool AutoDistanceReferenceAvailable = true;
+	bool AutoRunwayReferenceAvailable = true;
+	std::vector<std::string> AutoAddedCallsigns;
+	std::vector<std::string> AutoProposalOrder;
+	std::vector<std::string> AutoProposalBase;
+	std::vector<std::string> PendingAutoDecisionBase;
+	std::vector<std::string> PendingAutoDecisionOrder;
+	std::vector<std::string> AutoPreviewBase;
+	std::vector<std::string> AutoPreviewOrder;
+	EuroScopePlugIn::CRadarScreen* AutoPreviewRadarScreen = nullptr;
+	std::vector<std::vector<std::string>> AutoRejectedOrders;
+	std::vector<std::string> AutoRejectedBase;
+	double AutoProposalSinceSeconds = 0.0;
+	double AutoNextEvaluationSeconds = 0.0;
+	std::vector<std::string> AutoLastEvaluationBase;
+	bool AutoAcceptRequested = false;
 	bool SequenceDirty = false;
 	bool ManagerExpanded = false;
 	bool ShowTurningPoints = false;

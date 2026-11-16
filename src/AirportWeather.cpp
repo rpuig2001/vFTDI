@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "AirportWeather.h"
 #include "SeparationMath.h"
+#include "TurningPointMath.h"
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -160,8 +161,9 @@ bool AirportWeatherService::Refresh()
 		double windSpeed = 0.0;
 		if (ReadJsonNumber(object, "obsTime", observationTime) && observationTime > 0.0)
 			observation.ObservationTime = static_cast<std::time_t>(observationTime);
-		observation.HasWind = ReadJsonNumber(object, "wdir", windDirection) &&
-			ReadJsonNumber(object, "wspd", windSpeed) && windSpeed >= 0.0;
+		const bool hasWindSpeed = ReadJsonNumber(object, "wspd", windSpeed) && windSpeed >= 0.0;
+		observation.HasWind = hasWindSpeed && (windSpeed == 0.0 ||
+			(ReadJsonNumber(object, "wdir", windDirection) && windDirection >= 0.0 && windDirection <= 360.0));
 		if (observation.HasWind) {
 			observation.WindDirection = windDirection;
 			observation.WindSpeedKts = windSpeed;
@@ -177,8 +179,10 @@ bool AirportWeatherService::Refresh()
 }
 
 double AirportWeatherService::GetGroundSpeedKts(
-	EuroScopePlugIn::CPosition position, double trackHeading, double indicatedSpeedKts) const
+	EuroScopePlugIn::CPosition position, double trackHeading, double indicatedSpeedKts, bool* hasWind) const
 {
+	if (hasWind != nullptr)
+		*hasWind = false;
 	const std::time_t now = std::time(nullptr);
 	double nearestDistanceNm = HUGE_VAL;
 	const Observation* nearestObservation = nullptr;
@@ -201,9 +205,8 @@ double AirportWeatherService::GetGroundSpeedKts(
 	if (nearestObservation == nullptr)
 		return indicatedSpeedKts;
 
-	const double windAngle = SeparationMath::DegToRad(
-		nearestObservation->WindDirection - trackHeading);
-	const double tailwindKts = -nearestObservation->WindSpeedKts * std::cos(windAngle);
-	const double groundSpeedKts = indicatedSpeedKts + tailwindKts;
-	return groundSpeedKts > 0.0 ? groundSpeedKts : 0.0;
+	if (hasWind != nullptr)
+		*hasWind = true;
+	return TurningPointMath::GroundSpeedForTrackKts(indicatedSpeedKts, trackHeading,
+		nearestObservation->WindDirection, nearestObservation->WindSpeedKts);
 }

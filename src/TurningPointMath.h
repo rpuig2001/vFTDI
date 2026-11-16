@@ -7,6 +7,21 @@
 namespace TurningPointMath {
 	constexpr double Pi = 3.14159265358979323846;
 
+	inline double GroundSpeedForTrackKts(double airspeedKts, double trackDegrees,
+		double windFromDegrees, double windSpeedKts)
+	{
+		if (!std::isfinite(airspeedKts) || !std::isfinite(trackDegrees) ||
+			!std::isfinite(windFromDegrees) || !std::isfinite(windSpeedKts) ||
+			airspeedKts <= 0.0 || windSpeedKts < 0.0)
+			return 0.0;
+		const double windAngle = (windFromDegrees - trackDegrees) * Pi / 180.0;
+		const double crosswindKts = windSpeedKts * std::sin(windAngle);
+		if (std::abs(crosswindKts) > airspeedKts)
+			return 0.0;
+		const double alongAirKts = std::sqrt(airspeedKts * airspeedKts - crosswindKts * crosswindKts);
+		return (std::max)(0.0, alongAirKts - windSpeedKts * std::cos(windAngle));
+	}
+
 	inline double RouteDistanceOnLocalizerNm(double remainingRouteNm, double aircraftAlongOwnLocalizerNm,
 		double aircraftAlongTargetLocalizerNm)
 	{
@@ -30,6 +45,11 @@ namespace TurningPointMath {
 		if (lateralDistanceNm >= directDistanceNm)
 			return 0.0;
 		return std::sqrt(directDistanceNm * directDistanceNm - lateralDistanceNm * lateralDistanceNm);
+	}
+
+	inline double DependentTargetFloorNm(double referenceAlongNm, double referenceCrossTrackNm, double directDistanceNm)
+	{
+		return referenceAlongNm + LongitudinalComponentForDirectDistanceNm(directDistanceNm, referenceCrossTrackNm);
 	}
 
 	inline double DownstreamReferenceNm(double expectedAlongLocalizerNm, double ftdAlongLocalizerNm,
@@ -102,10 +122,25 @@ namespace TurningPointMath {
 		double StraightDistanceNm = 0.0;
 		int FirstTurnDirection = 1;
 		int FinalTurnDirection = 1;
+		bool StraightFallback = false;
 	};
+
+	inline bool IsPlausibleTurnRoute(const TurnRoute& route)
+	{
+		return std::isfinite(route.BeforeFinalNm) && std::isfinite(route.FinalNm) &&
+			std::isfinite(route.FirstTurnRadians) && std::isfinite(route.FinalTurnRadians) &&
+			route.BeforeFinalNm >= 0.0 && route.FinalNm >= 0.0 &&
+			route.FirstTurnRadians >= 0.0 && route.FirstTurnRadians <= Pi &&
+			route.FinalTurnRadians >= 0.0 && route.FinalTurnRadians <= Pi;
+	}
 
 	inline RoutePoint RouteCurvePoint(const TurnRoute& route, double fraction)
 	{
+		if (route.StraightFallback) {
+			const double position = (std::max)(0.0, (std::min)(1.0, fraction));
+			return { route.CurveStart.OutwardNm + (route.CurveEnd.OutwardNm - route.CurveStart.OutwardNm) * position,
+				route.CurveStart.CrossTrackNm + (route.CurveEnd.CrossTrackNm - route.CurveStart.CrossTrackNm) * position };
+		}
 		if (fraction <= 0.0 || route.BeforeFinalNm == 0.0)
 			return route.CurveStart;
 		if (fraction >= 1.0)
@@ -206,7 +241,7 @@ namespace TurningPointMath {
 			}
 		}
 		route.BeforeFinalNm = shortestNm;
-		return true;
+		return shortestNm < 1.0e99;
 	}
 
 	inline double TimeToThresholdHours(double beforeFinalNm, double finalNm,
@@ -231,6 +266,20 @@ namespace TurningPointMath {
 			(beforeFinalNm - currentSpeedDistanceNm) / speed.BeforeFinalKts +
 			cruiseDistanceNm / speed.CruiseKts +
 			(finalNm - cruiseDistanceNm) / speed.FinalKts;
+	}
+
+	inline double CurrentPhaseSpeedKts(double beforeFinalNm, double finalNm, const SpeedProfile& speed)
+	{
+		if (TimeToThresholdHours(beforeFinalNm, finalNm, speed) < 0.0)
+			return -1.0;
+		SplitActualSpeedLegs(beforeFinalNm, finalNm, speed.ActualSpeedUntilNm, speed.ReductionNm);
+		const double currentDistanceNm = speed.LongApproachNm > 0.0 && speed.ActualSpeedUntilNm <= 0.0
+			? (std::max)(0.0, (std::min)(beforeFinalNm, beforeFinalNm + finalNm - speed.LongApproachNm)) : beforeFinalNm;
+		if (currentDistanceNm > 0.0)
+			return speed.CurrentKts;
+		if (beforeFinalNm > 0.0)
+			return speed.BeforeFinalKts;
+		return finalNm > speed.ReductionNm ? speed.CruiseKts : speed.FinalKts;
 	}
 
 	inline double DistanceFlownNm(double beforeFinalNm, double finalNm, const SpeedProfile& speed, double elapsedHours)
@@ -269,8 +318,18 @@ namespace TurningPointMath {
 	inline bool BuildRoute(double outwardNm, double crossTrackNm, double relativeTrackRadians,
 		double groundSpeedKts, double startDistanceNm, double localizerPointNm, TurnRoute& route, bool clearedForApproach = false)
 	{
-		if (!clearedForApproach)
-			return BuildCurvedRoute(outwardNm, crossTrackNm, relativeTrackRadians, startDistanceNm, localizerPointNm, route, groundSpeedKts);
+		if (!clearedForApproach) {
+			if (BuildCurvedRoute(outwardNm, crossTrackNm, relativeTrackRadians, startDistanceNm, localizerPointNm, route, groundSpeedKts) &&
+				IsPlausibleTurnRoute(route))
+				return true;
+			if (!BuildDirectRoute(outwardNm, crossTrackNm, relativeTrackRadians, startDistanceNm, localizerPointNm, route))
+				return false;
+			route.CurveStart = { outwardNm + startDistanceNm * std::cos(relativeTrackRadians),
+				crossTrackNm + startDistanceNm * std::sin(relativeTrackRadians) };
+			route.CurveEnd = { localizerPointNm, 0.0 };
+			route.StraightFallback = true;
+			return true;
+		}
 		if (!BuildDirectRoute(outwardNm, crossTrackNm, relativeTrackRadians, startDistanceNm, 0.0, route))
 			return false;
 		route.FinalNm = route.BeforeFinalNm;
@@ -304,7 +363,7 @@ namespace TurningPointMath {
 				const double distanceNm = pass == 0 ? stepNm : -stepNm;
 				TurnRoute candidate;
 				if (!BuildRoute(outwardNm, crossTrackNm, relativeTrackRadians,
-					speed.CurrentKts, distanceNm, localizerPointNm, candidate)) {
+					speed.CurrentKts, distanceNm, localizerPointNm, candidate) || !IsPlausibleTurnRoute(candidate)) {
 					hasPrevious = false;
 					continue;
 				}
@@ -329,7 +388,7 @@ namespace TurningPointMath {
 					for (int iteration = 0; iteration < 40; ++iteration) {
 						const double midpointNm = (lowerNm + upperNm) / 2.0;
 						if (!BuildRoute(outwardNm, crossTrackNm, relativeTrackRadians,
-							speed.CurrentKts, midpointNm, localizerPointNm, candidate)) {
+							speed.CurrentKts, midpointNm, localizerPointNm, candidate) || !IsPlausibleTurnRoute(candidate)) {
 							validBracket = false;
 							break;
 						}
@@ -385,7 +444,8 @@ namespace TurningPointMath {
 			distanceNm = (std::min)(horizonNm, distanceNm + 0.05)) {
 			TurnRoute candidate;
 			if (BuildRoute(outwardNm, crossTrackNm, relativeTrackRadians, speed.CurrentKts,
-				distanceNm, localizerPointNm, candidate) && ItdDeliveryErrorNm(candidate, speed, target) >= 0.0) {
+				distanceNm, localizerPointNm, candidate) && IsPlausibleTurnRoute(candidate) &&
+				ItdDeliveryErrorNm(candidate, speed, target) >= 0.0) {
 				if (hasPrevious) {
 					double lowerNm = previousDistanceNm;
 					double upperNm = distanceNm;
@@ -393,7 +453,8 @@ namespace TurningPointMath {
 						const double midpointNm = (lowerNm + upperNm) / 2.0;
 						TurnRoute midpointRoute;
 						if (BuildRoute(outwardNm, crossTrackNm, relativeTrackRadians, speed.CurrentKts,
-							midpointNm, localizerPointNm, midpointRoute) && ItdDeliveryErrorNm(midpointRoute, speed, target) >= 0.0) {
+							midpointNm, localizerPointNm, midpointRoute) && IsPlausibleTurnRoute(midpointRoute) &&
+							ItdDeliveryErrorNm(midpointRoute, speed, target) >= 0.0) {
 							upperNm = midpointNm;
 							candidate = midpointRoute;
 						}
