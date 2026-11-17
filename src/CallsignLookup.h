@@ -30,6 +30,7 @@ public:
 	bool isConfiguredArrivalRunway(const std::string& airport, const std::string& runway) const;
 	bool hasConfiguredArrivalRunways(const std::string& airport) const;
 	double getMaximumAutoDistanceNm() const;
+	double getMaximumDisplayDistanceNm() const { return maximumDisplayDistanceNm; }
 	int getDefaultVisibleRows() const;
 	std::string getProposalTagText() const;
 	bool getProposalsEnabled() const { return proposalsEnabled; }
@@ -103,6 +104,7 @@ private:
 	};
 	double minimumDistanceNm = 3.0;
 	double maximumAutoDistanceNm = 0.0;
+	double maximumDisplayDistanceNm = 0.0;
 	double minimumParallelDependentDistanceNm = 3.0;
 	double finalBufferNm = 1.0;
 	double longApproachNm = 0.0;

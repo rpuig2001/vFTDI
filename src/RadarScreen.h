@@ -20,6 +20,7 @@ public:
 
 	void OnRefresh(HDC hDC, int Phase);
 	void OnButtonDownScreenObject(int ObjectType, const char * sObjectId, POINT Pt, RECT Area, int Button) override;
+	void OnClickScreenObject(int ObjectType, const char* sObjectId, POINT Pt, RECT Area, int Button) override;
 	void OnMoveScreenObject(int ObjectType, const char* sObjectId, POINT Pt, RECT Area, bool Released) override;
 	void OnAsrContentToBeClosed(void) { if (Session->AutoPreviewRadarScreen == this) Session->AutoPreviewRadarScreen = nullptr; SequenceSelectionActive.store(false); SequencePickArmed.store(false); delete this; }
 

@@ -10,7 +10,7 @@ public:
 	explicit FTDiPanelScreen(std::shared_ptr<FTDiSession> session);
 
 	void OnRefresh(HDC hDC, int Phase);
-	void OnButtonDownScreenObject(int ObjectType, const char* sObjectId, POINT Pt, RECT Area, int Button) override;
+	void OnClickScreenObject(int ObjectType, const char* sObjectId, POINT Pt, RECT Area, int Button) override;
 	void OnAsrContentToBeClosed(void) { delete this; }
 
 private:

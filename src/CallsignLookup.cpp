@@ -95,6 +95,7 @@ std::string IniDirective(const std::string& section, const std::string& key)
 		if (normalizedKey == "MODE") return "DISPLAYMODE";
 		if (normalizedKey == "MINIMUMALTITUDE") return "MINALTITUDE";
 		if (normalizedKey == "MAXDISTANCE") return "MAXAUTODISTANCE";
+		if (normalizedKey == "MAXDISPLAYDISTANCENM") return "MAXDISPLAYDISTANCE";
 		if (normalizedKey == "DEFAULTROWS") return "DEFAULTROWS";
 		if (normalizedKey == "FTDMARKERSIZE") return "FTDMARKERSIZE";
 		if (normalizedKey == "ITDMARKERSIZE") return "ITDMARKERSIZE";
@@ -398,6 +399,15 @@ CCallsignLookup::CCallsignLookup(const std::string& fileName)
 			double value;
 			if (parser >> value && std::isfinite(value) && value >= 0.0)
 				maximumAutoDistanceNm = value;
+			continue;
+		}
+		if (key == "MAXDISPLAYDISTANCE") {
+			double value;
+			if (parser >> value && std::isfinite(value) && value >= 0.0) {
+				parser >> std::ws;
+				if (parser.eof())
+					maximumDisplayDistanceNm = value;
+			}
 			continue;
 		}
 		if (key == "MINPARALLELDEPENDENTDISTANCE") {

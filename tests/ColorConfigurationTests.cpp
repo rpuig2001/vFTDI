@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <limits>
 
 void CheckColor(CCallsignLookup::RgbColor actual, int red, int green, int blue, const char* message)
 {
@@ -19,6 +20,23 @@ int main(int argumentCount, char** arguments)
 	if (argumentCount != 2)
 		return 1;
 	const char* path = arguments[1];
+	for (int mode : { 1, 2 }) {
+		{
+			std::ofstream config(path);
+			config << "[general]\nmode = " << mode << "\nmaxDisplayDistanceNm = 25.5\n";
+			config << "maxDisplayDistanceNm = -1\nmaxDisplayDistanceNm = invalid\n";
+			config << "maxDisplayDistanceNm = 10 extra\nmaxDisplayDistanceNm = nan\n";
+		}
+		CCallsignLookup displayLimit(path);
+		if (displayLimit.getMaximumDisplayDistanceNm() != 25.5 || displayLimit.getMaximumAutoDistanceNm() != 0.0 ||
+			!SeparationMath::ShouldDisplayTargets(25.5, displayLimit.getMaximumDisplayDistanceNm()) ||
+			SeparationMath::ShouldDisplayTargets(25.51, displayLimit.getMaximumDisplayDistanceNm()) ||
+			SeparationMath::ShouldDisplayTargets(-1.0, displayLimit.getMaximumDisplayDistanceNm()))
+			return 1;
+	}
+	if (!SeparationMath::ShouldDisplayTargets(999.0, 0.0) ||
+		SeparationMath::ShouldDisplayTargets(std::numeric_limits<double>::quiet_NaN(), 25.0))
+		return 1;
 	const std::pair<const char*, bool> proposalDefaults[] = {
 		{ "true", true }, { "TRUE", true }, { "ON", true }, { "1", true },
 		{ "false", false }, { "FALSE", false }, { "off", false }, { "0", false },
@@ -66,6 +84,8 @@ int main(int argumentCount, char** arguments)
 		config << "TOOLTIP_TEXT = 1, 2\nPANEL_TEXT = 0, 255, 0\n";
 	}
 	CCallsignLookup configured(path);
+	if (configured.getMaximumDisplayDistanceNm() != 0.0)
+		return 1;
 	if (!configured.getProposalsEnabled())
 		return 1;
 	if (configured.isMode2())

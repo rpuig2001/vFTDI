@@ -119,6 +119,8 @@ The standalone geometry/timing regression checks are in `tests/TurningPointMathT
 
 ### Display Mode
 
+Under `[general]`, `maxDisplayDistanceNm` sets the maximum straight-line distance from each aircraft to its assigned arrival-runway threshold for displaying radar overlays in both modes. `0` (the default) is unlimited. For example, `maxDisplayDistanceNm = 25` shows FTD/ITD/GAP symbols, Mode 2 chevrons/bars, expected-position markers, routes, and turn cues only for aircraft at or within 25 NM. Each spacing pair uses the succeeding aircraft's distance, not the marker's or leader's distance. With a positive limit, overlays are hidden when assigned-runway geometry is unavailable. Focusing targets or previewing a route does not override the limit. Calculations, downstream spacing, panel statuses, proposals, and sequence membership continue unchanged outside the range. This setting is independent of the automatic-sequencing `maxDistance` limit and Mode 2's `calculationAreaNm` warning display. Reload the plugin after changing it.
+
 Set `mode = 1` or `mode = 2` in `[general]` and reload the plugin. Missing or invalid settings keep Mode 1. Both modes use the same calculation engine; Mode 1's behavior is unchanged. The difference is presentation: Mode 2 uses real/theoretical FTD symbols and its own colors, and does not display an ITD marker.
 
 FTD, wake/RECAT fallback, final buffer, dependent/independent runway rules, manual GAP, downstream target placement, automatic removal, and proposal scoring are identical in both modes. Theoretical symbol styling does not add spacing or move the computed FTD. The old Mode 2 `NO REF` gate and `theoreticalMarginNm` calculation no longer apply. Clicking a radar separation symbol does nothing.

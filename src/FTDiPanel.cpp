@@ -861,11 +861,10 @@ void FTDiPanelScreen::OnRefresh(HDC hDC, int Phase)
 	dc.Detach();
 }
 
-void FTDiPanelScreen::OnButtonDownScreenObject(
+void FTDiPanelScreen::OnClickScreenObject(
 	int ObjectType, const char* sObjectId, POINT Pt, RECT Area, int Button)
 {
 	UNREFERENCED_PARAMETER(Pt);
-	UNREFERENCED_PARAMETER(Area);
 	if (HandleFTDiPanelButton(this, *Session, ObjectType, sObjectId, Button, Area))
 		RequestRefresh();
 }

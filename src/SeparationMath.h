@@ -5,6 +5,12 @@
 
 namespace SeparationMath {
 	constexpr double Pi = 3.14159265358979323846;
+
+	inline bool ShouldDisplayTargets(double thresholdDistanceNm, double maximumDistanceNm)
+	{
+		return maximumDistanceNm <= 0.0 || (std::isfinite(thresholdDistanceNm) &&
+			thresholdDistanceNm >= 0.0 && thresholdDistanceNm <= maximumDistanceNm);
+	}
 	inline bool Mode2LeaderEstablished(double alongNm, double crossNm, double headingDifferenceDegrees,
 		double localizerToleranceNm, double headingToleranceDegrees)
 	{

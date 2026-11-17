@@ -725,6 +725,8 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 	const int minimumAltitude = MinimumAltitudeFeet();
 	const bool mode2 = CCallsignLookup::Available && CCallsignLookup::Lookup != nullptr &&
 		CCallsignLookup::Lookup->isMode2();
+	const double maxDisplayDistanceNm = CCallsignLookup::Available && CCallsignLookup::Lookup != nullptr
+		? CCallsignLookup::Lookup->getMaximumDisplayDistanceNm() : 0.0;
 	for (auto aircraft = Session->ArrivalSequence.begin(); aircraft != Session->ArrivalSequence.end();) {
 		const CRadarTarget target = GetPlugIn()->RadarTargetSelect(aircraft->c_str());
 		if (!target.IsValid() || target.GetPosition().GetPressureAltitude() < minimumAltitude) {
@@ -897,6 +899,8 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 					FindLocalizerMarkerPosition(GetPlugIn(), destination, arrivalRunway,
 						aircraftPosition, firstAircraft.GetTrackHeading(), 0.0,
 						markerPosition, trackPosition, joinPoint, runwayThreshold)) {
+					if (!SeparationMath::ShouldDisplayTargets(aircraftPosition.DistanceTo(runwayThreshold), maxDisplayDistanceNm))
+						continue;
 					const bool passedJoin = HasPassedRoutePoint(
 						aircraftPosition, firstAircraft.GetTrackHeading(), joinPoint, runwayThreshold);
 					TurningPointMath::TurnRoute route;
@@ -1018,6 +1022,9 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 					succeedingPosition, succeeding.GetTrackHeading(), 0.0, routeMarkerPosition,
 					routeTrackPosition, succeedingJoinPoint, succeedingRunwayThreshold);
 		}
+		const bool displayTargets = SeparationMath::ShouldDisplayTargets(hasSucceedingRoute
+			? succeedingPosition.DistanceTo(succeedingRunwayThreshold) : std::numeric_limits<double>::quiet_NaN(),
+			maxDisplayDistanceNm);
 		const bool precedingPassedJoin = hasPrecedingRoute &&
 			HasPassedRoutePoint(precedingPosition, preceding.GetTrackHeading(),
 				precedingJoinPoint, precedingRunwayThreshold);
@@ -1070,8 +1077,8 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 				TrueBearingDegrees(succeedingRunwayThreshold, succeedingJoinPoint),
 				(std::max)(0.0, remainingNm) * 1852.0);
 			measurement.HasExpectedRoutePosition = true;
-			if (showLocalizerRoute || Session->RoutePreviewCallsign == measurement.SucceedingCallsign ||
-				Session->RightClickedSequenceCallsign == measurement.SucceedingCallsign)
+			if (displayTargets && (showLocalizerRoute || Session->RoutePreviewCallsign == measurement.SucceedingCallsign ||
+				Session->RightClickedSequenceCallsign == measurement.SucceedingCallsign))
 				DrawExpectedRoutePosition(this, dc, measurement.ExpectedRoutePosition);
 		}
 		if (measurement.ParallelIndependent) {
@@ -1080,7 +1087,7 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 			measurement.PlanningTurnTiming.Reset();
 			measurement.PlanningTurnNowWindow.Reset();
 			const bool previewSucceedingRoute = Session->RoutePreviewCallsign == measurement.SucceedingCallsign;
-			if (hasSucceedingRoute && (showLocalizerRoute || previewSucceedingRoute))
+			if (displayTargets && hasSucceedingRoute && (showLocalizerRoute || previewSucceedingRoute))
 				DrawAircraftLocalizerRoute(this, dc, succeedingPosition, succeeding.GetTrackHeading(),
 					succeedingJoinPoint, succeedingRunwayThreshold,
 					succeedingPassedJoin || measurement.ClearedForApproach,
@@ -1339,7 +1346,7 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 		const bool highlightPairMarkers =
 			Session->RightClickedSequenceCallsign == measurement.SucceedingCallsign;
 		const bool previewSucceedingRoute = Session->RoutePreviewCallsign == measurement.SucceedingCallsign;
-		if (hasLocalizerMarkerPosition && (showLocalizerRoute || previewSucceedingRoute)) {
+		if (displayTargets && hasLocalizerMarkerPosition && (showLocalizerRoute || previewSucceedingRoute)) {
 			CPen routePen(PS_DASH, 1, ConfiguredColor(mode2 ? "COLOR_SEPARATION_ROUTE" : "COLOR_ITD_ROUTE"));
 			const int routeState = dc.SaveDC();
 			dc.SelectObject(&routePen);
@@ -1453,7 +1460,7 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 				}
 				else {
 					const double turnDistanceNm = turnSeconds * followerSpeed.CurrentKts / 3600.0;
-					if (Session->ShowTurningPoints) {
+					if (displayTargets && Session->ShowTurningPoints) {
 						const CPosition turnPosition = SeparationMath::Extrapolate(succeedingPosition,
 							succeedingMotion.TrackDegrees, turnRoute.StartDistanceNm * 1852.0);
 						const POINT turnPixel = ConvertCoordFromPositionToPixel(turnPosition);
@@ -1525,16 +1532,18 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 			mode2ColorKey = SeparationMath::Mode2ColorKey(measurement.ClearedForApproach, actualNm,
 				finalTargetNm, CCallsignLookup::Lookup->getMode2Setting("predictionMarginNm", 0.5), gapGoverning);
 		}
-		DrawFinalTargetMarker(&dc,
-			finalTargetPoint,
-			ConvertCoordFromPositionToPixel(hasFinalTargetMarkerPosition ? finalMarkerPosition : precedingPosition),
-			ConvertCoordFromPositionToPixel(finalTrackPosition), finalTargetNm, actualNm,
-			measurement.ParallelDependent, gapGoverning, measurement.ClearedForApproach,
-			highlightPairMarkers, theoretical, mode2ColorKey);
-		if (!mode2 && compressionNm > 0.05) {
-			DrawWakeSpacingMarker(
-				&dc, markerPoint, precedingPoint, precedingTrackPoint,
-				measurement.ParallelDependent, highlightPairMarkers);
+		if (displayTargets) {
+			DrawFinalTargetMarker(&dc,
+				finalTargetPoint,
+				ConvertCoordFromPositionToPixel(hasFinalTargetMarkerPosition ? finalMarkerPosition : precedingPosition),
+				ConvertCoordFromPositionToPixel(finalTrackPosition), finalTargetNm, actualNm,
+				measurement.ParallelDependent, gapGoverning, measurement.ClearedForApproach,
+				highlightPairMarkers, theoretical, mode2ColorKey);
+			if (!mode2 && compressionNm > 0.05) {
+				DrawWakeSpacingMarker(
+					&dc, markerPoint, precedingPoint, precedingTrackPoint,
+					measurement.ParallelDependent, highlightPairMarkers);
+			}
 		}
 		++measurementIt;
 	}
@@ -2020,6 +2029,7 @@ void RadarScreen::SynchronizeSequenceMeasurements()
 
 void RadarScreen::OnButtonDownScreenObject(int ObjectType, const char * sObjectId, POINT Pt, RECT Area, int Button)
 {
+	UNREFERENCED_PARAMETER(sObjectId);
 	UNREFERENCED_PARAMETER(Area);
 	if (ObjectType == SCREEN_PANEL_MOVE && Button == BUTTON_LEFT) {
 		Session->ManagerDragging = true;
@@ -2027,6 +2037,11 @@ void RadarScreen::OnButtonDownScreenObject(int ObjectType, const char * sObjectI
 		Session->ManagerDragOffset.y = Pt.y - Session->ManagerPosition.y;
 		return;
 	}
+}
+
+void RadarScreen::OnClickScreenObject(int ObjectType, const char* sObjectId, POINT Pt, RECT Area, int Button)
+{
+	UNREFERENCED_PARAMETER(Pt);
 	if (ObjectType == SCREEN_PANEL_TOGGLE && Button == BUTTON_LEFT) {
 		Session->ManagerExpanded = !Session->ManagerExpanded;
 		RequestRefresh();
