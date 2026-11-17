@@ -5,13 +5,13 @@
 #include <functional>
 #include <limits>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
 constexpr double AutoSequenceMinimumAverageSavingSeconds = 5.0;
 constexpr double AutoSequenceMaximumIndividualDelaySeconds = 30.0;
 constexpr size_t AutoSequenceMaximumForwardPositions = 2;
-constexpr double AutoSequenceDecisionCooldownSeconds = 60.0;
 
 struct SuggestionMenuDismissDetector {
 	bool Armed = false;
@@ -121,6 +121,11 @@ struct SequenceOptimization {
 	std::vector<std::string> Order;
 	double AverageImprovementSeconds = 0.0;
 	bool SearchComplete = true;
+	struct Candidate {
+		std::vector<std::string> Order;
+		double AverageImprovementSeconds = 0.0;
+	};
+	std::vector<Candidate> Candidates;
 };
 
 inline size_t AutomaticInsertionIndex(const std::vector<SequenceArrivalEstimate>& existing,
@@ -146,14 +151,6 @@ inline bool IsCurrentSequenceProposal(const std::vector<std::string>& current,
 {
 	return !proposalOrder.empty() && current == proposalBase && proposalOrder == refreshed.Order &&
 		refreshed.AverageImprovementSeconds >= minimumImprovementSeconds;
-}
-
-inline bool ShouldRetainSequenceProposal(double improvementSeconds, double minimumImprovementSeconds,
-	double nowSeconds, double shownSinceSeconds)
-{
-	return std::isfinite(improvementSeconds) && improvementSeconds >= minimumImprovementSeconds &&
-		std::isfinite(nowSeconds) && std::isfinite(shownSinceSeconds) && nowSeconds >= shownSinceSeconds &&
-		nowSeconds - shownSinceSeconds < 30.0;
 }
 
 inline bool ShouldEvaluateAutomaticSequence(double nowSeconds, double nextEvaluationSeconds,
@@ -194,6 +191,31 @@ inline bool SequenceProposalMove(const std::vector<std::string>& original,
 	moved = proposed[first];
 	before = original[first];
 	return true;
+}
+
+inline std::vector<SequenceOptimization::Candidate> BestNonConflictingSequenceProposals(
+	const std::vector<std::string>& base, std::vector<SequenceOptimization::Candidate> candidates,
+	size_t maximumProposals)
+{
+	std::sort(candidates.begin(), candidates.end(), [](const SequenceOptimization::Candidate& first,
+		const SequenceOptimization::Candidate& second) {
+		return first.AverageImprovementSeconds > second.AverageImprovementSeconds;
+	});
+	std::set<std::string> involvedCallsigns;
+	std::vector<SequenceOptimization::Candidate> selected;
+	for (const SequenceOptimization::Candidate& candidate : candidates) {
+		if (selected.size() >= maximumProposals)
+			break;
+		std::string moved;
+		std::string before;
+		if (!SequenceProposalMove(base, candidate.Order, moved, before) ||
+			involvedCallsigns.count(moved) != 0 || involvedCallsigns.count(before) != 0)
+			continue;
+		involvedCallsigns.insert(moved);
+		involvedCallsigns.insert(before);
+		selected.push_back(candidate);
+	}
+	return selected;
 }
 
 inline bool SequenceProposalInvolves(const std::vector<std::string>& current,
@@ -442,16 +464,20 @@ inline SequenceOptimization BestSequenceInsertionImprovement(
 	}
 	double bestDelay = currentDelay;
 	const auto consider = [&]() {
-		const double candidateDelay = totalDelay(order, bestDelay);
-		if (candidateDelay < bestDelay) {
+		const double candidateDelay = totalDelay(order, currentDelay);
+		if (candidateDelay < currentDelay) {
 			std::vector<std::string> candidateOrder;
 			for (size_t index : order)
 				candidateOrder.push_back(arrivals[index].Callsign);
 			if (std::find(rejectedOrders.begin(), rejectedOrders.end(), candidateOrder) == rejectedOrders.end() &&
 				(!isOrderAllowed || isOrderAllowed(candidateOrder))) {
-				bestDelay = candidateDelay;
-				best.AverageImprovementSeconds = (currentDelay - candidateDelay) / count;
-				best.Order = candidateOrder;
+				const double improvement = (currentDelay - candidateDelay) / count;
+				best.Candidates.push_back({ candidateOrder, improvement });
+				if (candidateDelay < bestDelay) {
+					bestDelay = candidateDelay;
+					best.AverageImprovementSeconds = improvement;
+					best.Order = candidateOrder;
+				}
 			}
 		}
 	};
@@ -467,8 +493,6 @@ inline SequenceOptimization BestSequenceInsertionImprovement(
 			std::rotate(order.begin() + destination, order.begin() + source, order.begin() + source + 1);
 			consider();
 			std::rotate(order.begin() + destination, order.begin() + destination + 1, order.begin() + source + 1);
-			if (bestDelay <= 0.0)
-				return best;
 			if (budgetExceeded) {
 				best.SearchComplete = false;
 				return best;

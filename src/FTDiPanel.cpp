@@ -115,7 +115,8 @@ void DrawStatusBadge(CDC& dc, const CRect& area, const std::string& status)
 	const char* fillKey = turnNow ? "COLOR_BREACH_ALERT"
 		: (updating ? "COLOR_TURN_PASSED"
 				: (countdown ? "COLOR_TURN_POINT"
-					: (noDelay ? "COLOR_ITD_TARGET"
+					: (noDelay ? (CCallsignLookup::Lookup != nullptr && CCallsignLookup::Lookup->isMode2()
+						? "COLOR_SEPARATION_NORMAL" : "COLOR_ITD_TARGET")
 						: (cleared ? "COLOR_PANEL_DISABLED"
 							: (leader ? "COLOR_PANEL_SURFACE" : "COLOR_PANEL_STATUS_WARNING")))));
 	const char* textKey = turnNow || leader || (!updating && !countdown && !noDelay && !cleared)
@@ -182,12 +183,13 @@ void DrawAutoSequenceControl(CRadarScreen* screen, CDC& dc, const CRect& area, c
 		ConfiguredColor(session.AutoSequenceAirport.empty() ? "COLOR_PANEL_SURFACE" : "COLOR_PANEL_ACCENT"),
 		ConfiguredColor(session.AutoSequenceAirport.empty() ? "COLOR_PANEL_HEADER_TEXT" : "COLOR_PANEL_TEXT"));
 	const std::string autoTooltip = session.AutoSequenceAirport.empty()
-		? "Enable automatic arrival sequencing" : "Auto " + session.AutoSequenceAirport + ": " + session.AutoSequenceStatus;
+		? "Enable automatic arrival sequencing" : "Automatic arrival sequencing for " + session.AutoSequenceAirport;
 	screen->AddScreenObject(SCREEN_AUTO_SEQUENCE, "AUTO", autoButton, false, autoTooltip.c_str());
 	std::string moved;
 	std::string before;
-	const bool hasSuggestion = session.AutoProposalBase == session.ArrivalSequence &&
-		SequenceProposalMove(session.AutoProposalBase, session.AutoProposalOrder, moved, before);
+	const bool hasSuggestion = !session.AutoProposals.empty() &&
+		session.AutoProposals.front().Base == session.ArrivalSequence &&
+		SequenceProposalMove(session.AutoProposals.front().Base, session.AutoProposals.front().Order, moved, before);
 	const CRect lamp(area.right - 20, area.top, area.right, area.bottom);
 	const int savedState = dc.SaveDC();
 	CPen lampPen(PS_SOLID, 1, ConfiguredColor("COLOR_PANEL_DIVIDER"));
@@ -197,14 +199,9 @@ void DrawAutoSequenceControl(CRadarScreen* screen, CDC& dc, const CRect& area, c
 	dc.Ellipse(lamp.left + 4, lamp.top + 4, lamp.right - 4, lamp.bottom - 4);
 	dc.RestoreDC(savedState);
 	const std::string lampTooltip = hasSuggestion
-		? "Suggestion: move " + moved + " before " + before + "; click for arrow and review"
+		? "Move " + moved + " before " + before + "; " + std::to_string(session.AutoProposals.size()) + " suggestions"
 		: "No sequence suggestion";
 	screen->AddScreenObject(SCREEN_AUTO_LAMP, "AUTO_LAMP", lamp, false, lampTooltip.c_str());
-	if (!session.AutoSequenceAirport.empty()) {
-		const CRect statusArea(autoButton.right + 5, area.top, lamp.left - 3, area.bottom);
-		DrawFittedText(dc, statusArea, hasSuggestion ? "Suggestion" : session.AutoSequenceStatus,
-			ConfiguredColor("COLOR_PANEL_TEXT"), 8, 7);
-	}
 }
 
 std::string PairObjectId(const char* action, const WakeMeasurement& measurement)
@@ -244,7 +241,8 @@ void DrawSequenceRow(CRadarScreen* screen, CDC& dc, const CRect& row,
 	const CRect callsignArea(row.left + 7, row.top + 2,
 		controlsLeft - 35, row.top + 19);
 	DrawFittedText(dc, callsignArea, sequenceTitle,
-		ConfiguredColor(isRightClicked ? "COLOR_PANEL_STATUS_WARNING" : "COLOR_PANEL_TEXT"), 9, 7, true);
+		ConfiguredColor(measurement != nullptr && measurement->Mode2SequenceInvalid ? "COLOR_SEQUENCE_INVALID"
+			: (isRightClicked ? "COLOR_PANEL_STATUS_WARNING" : "COLOR_PANEL_TEXT")), 9, 7, true);
 	CFlightPlan flightPlan = screen->GetPlugIn()->FlightPlanSelect(callsign.c_str());
 	if (!flightPlan.IsValid()) {
 		const CRadarTarget target = screen->GetPlugIn()->RadarTargetSelect(callsign.c_str());
@@ -285,7 +283,7 @@ void DrawSequenceRow(CRadarScreen* screen, CDC& dc, const CRect& row,
 		: "Final approach speed override: " + std::to_string(speedOverride->second) + " kt";
 	screen->AddScreenObject(SCREEN_PANEL_SPEED, callsign.c_str(), speedButton, false, speedTooltip.c_str());
 	{
-		const std::string status = index == 0 ? "LEADER"
+		const std::string status = index == 0 && measurement == nullptr ? "LEADER"
 			: (measurement == nullptr || measurement->TurnStatus.empty() ? "NO PAIR" : measurement->TurnStatus);
 		const std::string detail = index == 0 ? "Turn recommendations are calculated for followers, not the sequence leader"
 			: (measurement == nullptr || measurement->TurnStatus.empty()
@@ -331,19 +329,24 @@ void DrawSequenceRow(CRadarScreen* screen, CDC& dc, const CRect& row,
 }
 }
 
-bool OpenAutoSuggestionMenu(CPlugIn* plugIn, FTDiSession& session, RECT area)
+bool OpenAutoSuggestionDecisionMenu(CPlugIn* plugIn, FTDiSession& session,
+	const std::vector<std::string>& order, RECT area)
 {
-	if (plugIn == nullptr || session.AutoProposalBase != session.ArrivalSequence)
+	if (plugIn == nullptr)
+		return false;
+	const AutoSequenceProposal* proposal = FindCurrentAutoProposal(session, order);
+	if (proposal == nullptr)
 		return false;
 	std::string moved;
 	std::string before;
-	if (!SequenceProposalMove(session.AutoProposalBase, session.AutoProposalOrder, moved, before))
+	if (!SequenceProposalMove(proposal->Base, proposal->Order, moved, before))
 		return false;
-	if (!BeginSequenceProposalPreview(session.ArrivalSequence, session.AutoProposalBase,
-		session.AutoProposalOrder, session.AutoPreviewBase, session.AutoPreviewOrder))
+	if (!BeginSequenceProposalPreview(session.ArrivalSequence, proposal->Base,
+		proposal->Order, session.AutoPreviewBase, session.AutoPreviewOrder))
 		return false;
-	session.PendingAutoDecisionBase = session.AutoProposalBase;
-	session.PendingAutoDecisionOrder = session.AutoProposalOrder;
+	session.PendingAutoDecisionBase = proposal->Base;
+	session.PendingAutoDecisionOrder = proposal->Order;
+	SuggestionMenuDismissedGeneration.store(0);
 	SuggestionMenuGeneration.fetch_add(1);
 	SuggestionMenuActive.store(true);
 	if (session.AutoPreviewRadarScreen != nullptr)
@@ -352,6 +355,37 @@ bool OpenAutoSuggestionMenu(CPlugIn* plugIn, FTDiSession& session, RECT area)
 	plugIn->OpenPopupList(area, title.c_str(), 1);
 	plugIn->AddPopupListElement("Accept", "", FUNCTION_AUTO_ACCEPT);
 	plugIn->AddPopupListElement("Decline", "", FUNCTION_AUTO_DECLINE);
+	return true;
+}
+
+bool OpenAutoSuggestionMenu(CPlugIn* plugIn, FTDiSession& session, RECT area, const std::string& callsign)
+{
+	if (plugIn == nullptr)
+		return false;
+	session.AutoProposalMenuOrders.clear();
+	for (const AutoSequenceProposal& proposal : session.AutoProposals) {
+		if (proposal.Base != session.ArrivalSequence ||
+			(!callsign.empty() && !SequenceProposalInvolves(session.ArrivalSequence,
+				proposal.Base, proposal.Order, callsign)))
+			continue;
+		session.AutoProposalMenuOrders.push_back(proposal.Order);
+	}
+	if (session.AutoProposalMenuOrders.empty())
+		return false;
+	if (session.AutoProposalMenuOrders.size() == 1)
+		return OpenAutoSuggestionDecisionMenu(plugIn, session, session.AutoProposalMenuOrders.front(), area);
+	SuggestionMenuGeneration.fetch_add(1);
+	SuggestionMenuActive.store(true);
+	SuggestionMenuDismissedGeneration.store(0);
+	plugIn->OpenPopupList(area, "SEQUENCE PROPOSALS", 1);
+	for (size_t index = 0; index < session.AutoProposalMenuOrders.size(); ++index) {
+		std::string moved;
+		std::string before;
+		if (!SequenceProposalMove(session.ArrivalSequence, session.AutoProposalMenuOrders[index], moved, before))
+			continue;
+		const std::string label = "Move " + moved + " before " + before;
+		plugIn->AddPopupListElement(label.c_str(), "", FUNCTION_AUTO_SELECT_PROPOSAL);
+	}
 	return true;
 }
 
@@ -507,9 +541,10 @@ bool HandleFTDiPanelButton(
 		SequenceAddRequested.store(true);
 		return true;
 	}
-	if (objectType == SCREEN_PANEL_ROUTE) {
-		if (CCallsignLookup::Available && CCallsignLookup::Lookup != nullptr)
-			CCallsignLookup::Lookup->toggleShowLocalizerRoute();
+	if (objectType == SCREEN_PANEL_PROPOSALS) {
+		session.ToggleProposals();
+		if (session.AutoPreviewRadarScreen != nullptr)
+			session.AutoPreviewRadarScreen->RequestRefresh();
 		return true;
 	}
 	if (objectType == SCREEN_PANEL_TURNS) {
@@ -632,7 +667,7 @@ void DrawFTDiRadarOverlay(
 	dc.FillSolidRect(launcher.left, launcher.top, 3, launcher.Height(), ConfiguredColor("COLOR_PANEL_WARNING"));
 	DrawText(dc, launcher.left + 7, launcher.top + 4,
 		"vFTDI   " + std::to_string(session->ArrivalSequence.size()), ConfiguredColor("COLOR_PANEL_HEADER_TEXT"), 8, true);
-	if (!session->ManagerExpanded && !session->AutoProposalOrder.empty())
+	if (!session->ManagerExpanded && !session->AutoProposals.empty())
 		DrawFittedText(dc, CRect(launcher.left + 100, launcher.top + 2, launcher.right - 30, launcher.bottom - 2),
 			"SUGGESTION", ConfiguredColor("COLOR_PANEL_WARNING"), 8, 7, true);
 	const CRect toggleButton(launcher.right - 25, launcher.top + 3, launcher.right - 4, launcher.bottom - 3);
@@ -673,17 +708,16 @@ void DrawFTDiRadarOverlay(
 		addButton.right + 5 + actionWidth, panel.top + 25);
 	const CRect turnButton(routeButton.right + 5, panel.top + 5,
 		panel.right - 7, panel.top + 25);
-	const bool routeVisible = !CCallsignLookup::Available || CCallsignLookup::Lookup == nullptr ||
-		CCallsignLookup::Lookup->getShowLocalizerRoute();
 	const bool selectingAircraft = SequenceSelectionActive.load();
 	DrawButton(dc, addButton, selectingAircraft ? "PICK ACFT" : "+ ACFT",
 		ConfiguredColor("COLOR_PANEL_ACCENT"), ConfiguredColor("COLOR_PANEL_TEXT"));
-	DrawButton(dc, routeButton, routeVisible ? "RTE ON" : "RTE OFF",
-		ConfiguredColor("COLOR_PANEL_SURFACE"), ConfiguredColor("COLOR_PANEL_HEADER_TEXT"));
+	DrawButton(dc, routeButton, session->ProposalsEnabled ? "PROP ON" : "PROP OFF",
+		ConfiguredColor(session->ProposalsEnabled ? "COLOR_PANEL_ACCENT" : "COLOR_PANEL_SURFACE"),
+		ConfiguredColor(session->ProposalsEnabled ? "COLOR_PANEL_TEXT" : "COLOR_PANEL_HEADER_TEXT"));
 	screen->AddScreenObject(SCREEN_PANEL_ADD, "ADD", addButton, false,
 		selectingAircraft ? "Pick one aircraft to append; right-click to cancel"
 			: "Start aircraft selection before clicking an aircraft to append");
-	screen->AddScreenObject(SCREEN_PANEL_ROUTE, "ROUTE", routeButton, false, "Toggle the localizer route overlay");
+	screen->AddScreenObject(SCREEN_PANEL_PROPOSALS, "PROPOSALS", routeButton, false, "Enable or disable sequence proposals; automatic aircraft addition is unchanged");
 	DrawTurnToggle(screen, dc, turnButton, session->ShowTurningPoints);
 	const auto profiles = CCallsignLookup::Available && CCallsignLookup::Lookup != nullptr
 		? CCallsignLookup::Lookup->getProfileNames() : std::vector<std::string>{ "ALT", "DEP" };
@@ -748,18 +782,17 @@ void FTDiPanelScreen::OnRefresh(HDC hDC, int Phase)
 	const int actionWidth = (bounds.right - bounds.left - 56) / 3;
 	const CRect addButton(bounds.left + 20, buttonTop,
 		bounds.left + 20 + actionWidth, buttonTop + buttonHeight);
-	const bool routeVisible = !CCallsignLookup::Available || CCallsignLookup::Lookup == nullptr ||
-		CCallsignLookup::Lookup->getShowLocalizerRoute();
 	const CRect routeButton(addButton.right + 10, buttonTop,
 		addButton.right + 10 + actionWidth, buttonTop + buttonHeight);
 	const CRect turnButton(routeButton.right + 10, buttonTop,
 		bounds.right - 16, buttonTop + buttonHeight);
 	DrawButton(dc, addButton, "+ ACFT", ConfiguredColor("COLOR_PANEL_ACCENT"), ConfiguredColor("COLOR_PANEL_TEXT"));
-	DrawButton(dc, routeButton, routeVisible ? "RTE ON" : "RTE OFF",
-		ConfiguredColor("COLOR_PANEL_SURFACE"), ConfiguredColor("COLOR_PANEL_HEADER_TEXT"));
+	DrawButton(dc, routeButton, Session->ProposalsEnabled ? "PROP ON" : "PROP OFF",
+		ConfiguredColor(Session->ProposalsEnabled ? "COLOR_PANEL_ACCENT" : "COLOR_PANEL_SURFACE"),
+		ConfiguredColor(Session->ProposalsEnabled ? "COLOR_PANEL_TEXT" : "COLOR_PANEL_HEADER_TEXT"));
 	AddScreenObject(SCREEN_PANEL_ADD, "ADD", addButton, false,
 		"Select one aircraft to append it to the arrival sequence");
-	AddScreenObject(SCREEN_PANEL_ROUTE, "ROUTE", routeButton, false, "Toggle the localizer route overlay");
+	AddScreenObject(SCREEN_PANEL_PROPOSALS, "PROPOSALS", routeButton, false, "Enable or disable sequence proposals; automatic aircraft addition is unchanged");
 	DrawTurnToggle(this, dc, turnButton, Session->ShowTurningPoints);
 	const CRect modeControl(bounds.left + 20, buttonTop + buttonHeight + 4,
 		bounds.right - 16, buttonTop + buttonHeight + 22);

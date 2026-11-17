@@ -27,4 +27,7 @@ bool HandleFTDiPanelButton(
 	EuroScopePlugIn::CRadarScreen* screen, FTDiSession& session,
 	int objectType, const char* objectId, int button, RECT area);
 
-bool OpenAutoSuggestionMenu(EuroScopePlugIn::CPlugIn* plugIn, FTDiSession& session, RECT area);
+bool OpenAutoSuggestionMenu(EuroScopePlugIn::CPlugIn* plugIn, FTDiSession& session, RECT area,
+	const std::string& callsign = {});
+bool OpenAutoSuggestionDecisionMenu(EuroScopePlugIn::CPlugIn* plugIn, FTDiSession& session,
+	const std::vector<std::string>& order, RECT area);

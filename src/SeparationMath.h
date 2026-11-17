@@ -5,6 +5,22 @@
 
 namespace SeparationMath {
 	constexpr double Pi = 3.14159265358979323846;
+	inline bool Mode2LeaderEstablished(double alongNm, double crossNm, double headingDifferenceDegrees,
+		double localizerToleranceNm, double headingToleranceDegrees)
+	{
+		return alongNm >= 0.0 && std::abs(crossNm) <= localizerToleranceNm &&
+			std::abs(headingDifferenceDegrees) <= headingToleranceDegrees;
+	}
+
+	inline const char* Mode2ColorKey(bool clearedForApproach, double actualNm,
+		double requiredNm, double warningNm, bool manual)
+	{
+		if (clearedForApproach && actualNm < requiredNm)
+			return "COLOR_SEPARATION_BREACH";
+		if (clearedForApproach && actualNm - requiredNm < warningNm)
+			return "COLOR_SEPARATION_PREDICTION";
+		return manual ? "COLOR_SEPARATION_MANUAL" : "COLOR_SEPARATION_NORMAL";
+	}
 
 	inline double DegToRad(double degrees)
 	{

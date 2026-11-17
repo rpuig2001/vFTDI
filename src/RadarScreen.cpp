@@ -138,7 +138,8 @@ void DrawAutoSequencePreview(CRadarScreen* screen, CDC& dc, FTDiSession& session
 {
 	if (session.AutoPreviewOrder.empty())
 		return;
-	if (!IsSameLiveSequenceProposal(session.ArrivalSequence, session.AutoProposalBase, session.AutoProposalOrder,
+	const AutoSequenceProposal* proposal = FindCurrentAutoProposal(session, session.AutoPreviewOrder);
+	if (proposal == nullptr || !IsSameLiveSequenceProposal(session.ArrivalSequence, proposal->Base, proposal->Order,
 		session.AutoPreviewBase, session.AutoPreviewOrder)) {
 		SuggestionMenuActive.store(false);
 		session.AutoPreviewBase.clear();
@@ -147,7 +148,7 @@ void DrawAutoSequencePreview(CRadarScreen* screen, CDC& dc, FTDiSession& session
 	}
 	std::string moved;
 	std::string before;
-	if (!SequenceProposalMove(session.AutoProposalBase, session.AutoProposalOrder, moved, before))
+	if (!SequenceProposalMove(proposal->Base, proposal->Order, moved, before))
 		return;
 	const CRadarTarget movingTarget = screen->GetPlugIn()->RadarTargetSelect(moved.c_str());
 	const CRadarTarget beforeTarget = screen->GetPlugIn()->RadarTargetSelect(before.c_str());
@@ -213,14 +214,10 @@ double FinalBufferNm()
 double RequiredSpacingNm(char precedingWake, char succeedingWake,
 	const char* precedingAircraftInfo, const char* succeedingAircraftInfo)
 {
-	double baseDistanceNm = MinimumDistanceNm();
-	if (CCallsignLookup::Available && CCallsignLookup::Lookup != nullptr) {
-		double wakeDistanceNm = 0.0;
-		if (CCallsignLookup::Lookup->getWakeSeparation(precedingWake, succeedingWake,
-			precedingAircraftInfo, succeedingAircraftInfo, wakeDistanceNm))
-			baseDistanceNm = wakeDistanceNm;
-	}
-	return baseDistanceNm + FinalBufferNm();
+	return CCallsignLookup::Available && CCallsignLookup::Lookup != nullptr
+		? CCallsignLookup::Lookup->getRequiredSpacingNm(precedingWake, succeedingWake,
+			precedingAircraftInfo, succeedingAircraftInfo)
+		: MinimumDistanceNm() + FinalBufferNm();
 }
 
 double PlannedDistanceFlownNm(
@@ -594,9 +591,10 @@ void DrawWakeSpacingMarker(
 void DrawFinalTargetMarker(
 	CDC* dc, POINT center, POINT precedingPoint, POINT precedingTrackPoint,
 	double requiredNm, double actualNm, bool parallelDependent, bool gapGoverning, bool showAlert,
-	bool highlighted)
+	bool highlighted, bool theoretical = false, const char* mode2ColorKey = nullptr)
 {
-	const COLORREF color = ConfiguredColor(gapGoverning ? "COLOR_GAP_TARGET" : "COLOR_FTD_TARGET");
+	const bool mode2 = mode2ColorKey != nullptr;
+	const COLORREF color = ConfiguredColor(mode2 ? mode2ColorKey : (gapGoverning ? "COLOR_GAP_TARGET" : "COLOR_FTD_TARGET"));
 	double directionX = static_cast<double>(precedingTrackPoint.x - precedingPoint.x);
 	double directionY = static_cast<double>(precedingTrackPoint.y - precedingPoint.y);
 	const double directionLength = std::sqrt(directionX * directionX + directionY * directionY);
@@ -616,8 +614,16 @@ void DrawFinalTargetMarker(
 	CPen highlightPen(PS_SOLID, 5, ConfiguredColor("COLOR_TURN_POINT"));
 	const double halfWidth = MarkerSizePixels(true) / 2.0;
 	const double depth = MarkerSizePixels(true) * 5.0 / 22.0;
-	const auto drawShape = [dc, gapGoverning, center, crossX, crossY, directionX, directionY, halfWidth, depth]() {
-	if (gapGoverning) {
+	const auto drawShape = [dc, mode2, theoretical, gapGoverning, center, crossX, crossY, directionX, directionY, halfWidth, depth]() {
+	if (mode2) {
+		const double recess = theoretical ? 0.0 : depth;
+		dc->MoveTo(static_cast<int>(center.x - crossX * halfWidth - directionX * recess),
+			static_cast<int>(center.y - crossY * halfWidth - directionY * recess));
+		dc->LineTo(center);
+		dc->LineTo(static_cast<int>(center.x + crossX * halfWidth - directionX * recess),
+			static_cast<int>(center.y + crossY * halfWidth - directionY * recess));
+	}
+	else if (gapGoverning) {
 		const POINT bracketTop = {
 			static_cast<LONG>(center.x - crossX * halfWidth + directionX * depth * 0.8),
 			static_cast<LONG>(center.y - crossY * halfWidth + directionY * depth * 0.8) };
@@ -665,7 +671,7 @@ void DrawFinalTargetMarker(
 	const int markerExtent = static_cast<int>(std::ceil(std::hypot(
 		MarkerSizePixels(true) / 2.0, MarkerSizePixels(true) * 5.0 / 22.0))) + 4;
 	LONG labelBottom = center.y + markerExtent;
-	if (showAlert && actualNm < requiredNm) {
+	if (!mode2 && showAlert && actualNm < requiredNm) {
 		const char* alertLabel = "ALERT";
 		const CSize alertSize = dc->GetTextExtent(alertLabel);
 		const int labelLeft = center.x - alertSize.cx / 2;
@@ -717,6 +723,8 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 	const int savedState = dc.SaveDC();
 	dc.SetBkMode(TRANSPARENT);
 	const int minimumAltitude = MinimumAltitudeFeet();
+	const bool mode2 = CCallsignLookup::Available && CCallsignLookup::Lookup != nullptr &&
+		CCallsignLookup::Lookup->isMode2();
 	for (auto aircraft = Session->ArrivalSequence.begin(); aircraft != Session->ArrivalSequence.end();) {
 		const CRadarTarget target = GetPlugIn()->RadarTargetSelect(aircraft->c_str());
 		if (!target.IsValid() || target.GetPosition().GetPressureAltitude() < minimumAltitude) {
@@ -749,6 +757,27 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 	GetPlugIn()->SelectScreenSectorfile(this);
 	AddAutomaticArrivals();
 	SynchronizeSequenceMeasurements();
+	Session->Mode2UnsequencedArrivals.clear();
+	if (mode2) {
+		for (CRadarTarget target = GetPlugIn()->RadarTargetSelectFirst(); target.IsValid();
+			target = GetPlugIn()->RadarTargetSelectNext(target)) {
+			const char* callsign = target.GetCallsign();
+			if (callsign == nullptr || target.GetPosition().GetPressureAltitude() < minimumAltitude ||
+				std::find(Session->ArrivalSequence.begin(), Session->ArrivalSequence.end(), callsign) != Session->ArrivalSequence.end())
+				continue;
+			const CFlightPlan plan = target.GetCorrelatedFlightPlan();
+			if (!plan.IsValid())
+				continue;
+			const CFlightPlanData data = plan.GetFlightPlanData();
+			CPosition marker, track, join, threshold;
+			const CPosition position = target.GetPosition().GetPosition();
+			if (data.GetDestination() != nullptr && data.GetArrivalRwy() != nullptr &&
+				FindLocalizerMarkerPosition(GetPlugIn(), data.GetDestination(), data.GetArrivalRwy(), position,
+					target.GetTrackHeading(), 0.0, marker, track, join, threshold) &&
+				position.DistanceTo(threshold) <= CCallsignLookup::Lookup->getMode2Setting("calculationAreaNm", 40.0))
+				Session->Mode2UnsequencedArrivals.insert(callsign);
+		}
+	}
 	const double predictionNowSeconds = GetTickCount64() / 1000.0;
 	for (auto motion = Session->PlanningMotion.begin(); motion != Session->PlanningMotion.end();) {
 		if (std::find(Session->ArrivalSequence.begin(), Session->ArrivalSequence.end(), motion->first) == Session->ArrivalSequence.end())
@@ -881,7 +910,7 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 					TurningPointMath::TurnRoute planningRoute;
 					const bool hasPlanningRoute = !passedJoin && BuildAircraftLocalizerRoute(aircraftPosition,
 						motion.TrackDegrees, motion.GroundSpeedKts, joinPoint, runwayThreshold, planningRoute, clearedForApproach);
-					CPen routePen(PS_DASH, 1, ConfiguredColor("COLOR_FTD_ROUTE"));
+					CPen routePen(PS_DASH, 1, ConfiguredColor(mode2 ? "COLOR_SEPARATION_ROUTE" : "COLOR_FTD_ROUTE"));
 					const int routeState = dc.SaveDC();
 					dc.SelectObject(&routePen);
 					DrawAircraftLocalizerRoute(this, dc, aircraftPosition, firstAircraft.GetTrackHeading(),
@@ -904,6 +933,7 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 		measurement.HasFinalTargetPosition = false;
 		measurement.HasExpectedRoutePosition = false;
 		measurement.HasCurrentSpacing = false;
+		measurement.Mode2SequenceInvalid = false;
 		measurement.HasRouteBasedCurrentSpacing = false;
 		measurement.TurnStatus = "NO DATA";
 		measurement.TurnStatusDetail = "Turn prediction requires valid aircraft and correlated flight plans";
@@ -1310,7 +1340,7 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 			Session->RightClickedSequenceCallsign == measurement.SucceedingCallsign;
 		const bool previewSucceedingRoute = Session->RoutePreviewCallsign == measurement.SucceedingCallsign;
 		if (hasLocalizerMarkerPosition && (showLocalizerRoute || previewSucceedingRoute)) {
-			CPen routePen(PS_DASH, 1, ConfiguredColor("COLOR_ITD_ROUTE"));
+			CPen routePen(PS_DASH, 1, ConfiguredColor(mode2 ? "COLOR_SEPARATION_ROUTE" : "COLOR_ITD_ROUTE"));
 			const int routeState = dc.SaveDC();
 			dc.SelectObject(&routePen);
 			DrawAircraftLocalizerRoute(this, dc, succeedingPosition, succeeding.GetTrackHeading(),
@@ -1359,7 +1389,9 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 			const double relativeTrackRadians = SignedAngleDifference(
 				succeedingMotion.TrackDegrees - outboundHeading) * TurningPointMath::Pi / 180.0;
 			measurement.TurnStatus = "NO MATCH";
-			measurement.TurnStatusDetail = "Route remains modeled, but no turn point delivers to the ITD slot with LOCALIZERPOINT constraints within 10 minutes or 40 NM";
+			measurement.TurnStatusDetail = mode2
+				? "Route remains modeled, but no turn point delivers to the planning slot with LOCALIZERPOINT constraints within 10 minutes or 40 NM"
+				: "Route remains modeled, but no turn point delivers to the ITD slot with LOCALIZERPOINT constraints within 10 minutes or 40 NM";
 			if (!validLeaderProfile || followerSpeed.CurrentKts < 80.0 ||
 				TurningPointMath::TimeToThresholdHours(0.0, 0.0, followerSpeed) < 0.0) {
 				measurement.TurnStatus = "NO SPEED";
@@ -1445,12 +1477,12 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 						: (turnRoute.TurnAngleRadians > 1.0e-6 ? "turn RIGHT" : "proceed");
 					char tooltip[240] = {};
 					std::snprintf(tooltip, sizeof(tooltip),
-						"%s: earliest modeled point to %s toward LOCALIZERPOINT (%.1f NM) with required ITD spacing: %.0f s / %.1f NM ahead",
-						measurement.SucceedingCallsign.c_str(), turnCommand, localizerPointNm, turnSeconds, turnDistanceNm);
+						"%s: earliest modeled point to %s toward LOCALIZERPOINT (%.1f NM) with required %s spacing: %.0f s / %.1f NM ahead",
+						measurement.SucceedingCallsign.c_str(), turnCommand, localizerPointNm, mode2 ? "planning" : "ITD", turnSeconds, turnDistanceNm);
 					if (largerGapSolution)
 						std::snprintf(tooltip, sizeof(tooltip),
-							"%s: earliest modeled point to %s toward LOCALIZERPOINT: %.0f s ahead; leaves %.1f NM extra behind ITD",
-							measurement.SucceedingCallsign.c_str(), turnCommand, turnSeconds, turnRoute.ItdExcessNm);
+							"%s: earliest modeled point to %s toward LOCALIZERPOINT: %.0f s ahead; leaves %.1f NM extra behind %s",
+							measurement.SucceedingCallsign.c_str(), turnCommand, turnSeconds, turnRoute.ItdExcessNm, mode2 ? "planning slot" : "ITD");
 					if (reusedSolution)
 						std::snprintf(tooltip, sizeof(tooltip),
 							"%s: UPDATING; previous turn point retained briefly while prediction recalculates; not a new turn instruction",
@@ -1471,13 +1503,35 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 			measurement.PlanningTurnTiming.Reset();
 			measurement.PlanningTurnNowWindow.Reset();
 		}
+		bool theoretical = false;
+		const char* mode2ColorKey = nullptr;
+		if (mode2) {
+			bool leaderEstablished = false;
+			if (hasPrecedingRoute) {
+				const double course = TrueBearingDegrees(precedingRunwayThreshold, precedingJoinPoint);
+				const double angle = SeparationMath::DegToRad(SignedAngleDifference(
+					TrueBearingDegrees(precedingRunwayThreshold, precedingPosition) - course));
+				const double distanceNm = precedingRunwayThreshold.DistanceTo(precedingPosition);
+				leaderEstablished = SeparationMath::Mode2LeaderEstablished(distanceNm * std::cos(angle),
+					distanceNm * std::sin(angle), SignedAngleDifference(preceding.GetTrackHeading() - course - 180.0),
+					CCallsignLookup::Lookup->getMode2Setting("localizerToleranceNm", 0.5),
+					CCallsignLookup::Lookup->getMode2Setting("headingToleranceDegrees", 30.0));
+				measurement.Mode2SequenceInvalid = hasSucceedingRoute &&
+					succeedingPosition.DistanceTo(succeedingRunwayThreshold) <=
+						CCallsignLookup::Lookup->getMode2Setting("calculationAreaNm", 40.0) &&
+					(!leaderEstablished || distanceNm > CCallsignLookup::Lookup->getMode2Setting("calculationAreaNm", 40.0) || actualNm < 0.0);
+			}
+			theoretical = !leaderEstablished || gapGoverning;
+			mode2ColorKey = SeparationMath::Mode2ColorKey(measurement.ClearedForApproach, actualNm,
+				finalTargetNm, CCallsignLookup::Lookup->getMode2Setting("predictionMarginNm", 0.5), gapGoverning);
+		}
 		DrawFinalTargetMarker(&dc,
 			finalTargetPoint,
 			ConvertCoordFromPositionToPixel(hasFinalTargetMarkerPosition ? finalMarkerPosition : precedingPosition),
 			ConvertCoordFromPositionToPixel(finalTrackPosition), finalTargetNm, actualNm,
 			measurement.ParallelDependent, gapGoverning, measurement.ClearedForApproach,
-			highlightPairMarkers);
-		if (compressionNm > 0.05) {
+			highlightPairMarkers, theoretical, mode2ColorKey);
+		if (!mode2 && compressionNm > 0.05) {
 			DrawWakeSpacingMarker(
 				&dc, markerPoint, precedingPoint, precedingTrackPoint,
 				measurement.ParallelDependent, highlightPairMarkers);
@@ -1534,18 +1588,14 @@ void RadarScreen::AddAutomaticArrivals()
 	Session->AutoDistanceReferenceAvailable = maxDistanceNm <= 0.0 ||
 		FindAirportPosition(GetPlugIn(), Session->AutoSequenceAirport, airportPosition);
 	if (!Session->AutoDistanceReferenceAvailable) {
-		Session->AutoSequenceStatus = "Airport position unavailable for maxDistance";
-		Session->AutoProposalOrder.clear();
-		Session->AutoProposalBase.clear();
+		Session->AutoProposals.clear();
 		Session->AutoAcceptRequested = false;
 		return;
 	}
 	Session->AutoRunwayReferenceAvailable = CCallsignLookup::Available && CCallsignLookup::Lookup != nullptr &&
 		CCallsignLookup::Lookup->hasConfiguredArrivalRunways(Session->AutoSequenceAirport);
 	if (!Session->AutoRunwayReferenceAvailable) {
-		Session->AutoSequenceStatus = "No runways configured for this airport";
-		Session->AutoProposalOrder.clear();
-		Session->AutoProposalBase.clear();
+		Session->AutoProposals.clear();
 		Session->AutoAcceptRequested = false;
 		return;
 	}
@@ -1681,7 +1731,7 @@ void RadarScreen::AddAutomaticArrivals()
 
 void RadarScreen::UpdateAutomaticProposal(double nowSeconds)
 {
-	if (Session->AutoSequenceAirport.empty())
+	if (!Session->ProposalsEnabled || Session->AutoSequenceAirport.empty())
 		return;
 	if (!Session->AutoDistanceReferenceAvailable || !Session->AutoRunwayReferenceAvailable)
 		return;
@@ -1691,30 +1741,25 @@ void RadarScreen::UpdateAutomaticProposal(double nowSeconds)
 	Session->AutoNextEvaluationSeconds = nowSeconds + 5.0;
 	Session->AutoLastEvaluationBase = Session->ArrivalSequence;
 	const bool accepting = Session->AutoAcceptRequested;
-	const bool selectedProposalCurrent = accepting && IsSameLiveSequenceProposal(Session->ArrivalSequence,
-		Session->AutoProposalBase, Session->AutoProposalOrder,
-		Session->PendingAutoDecisionBase, Session->PendingAutoDecisionOrder);
+	const std::vector<std::string> pendingDecisionBase = Session->PendingAutoDecisionBase;
+	const std::vector<std::string> pendingDecisionOrder = Session->PendingAutoDecisionOrder;
+	const bool selectedProposalCurrent = accepting && pendingDecisionBase == Session->ArrivalSequence &&
+		FindCurrentAutoProposal(*Session, pendingDecisionOrder) != nullptr;
 	Session->AutoAcceptRequested = false;
 	if (accepting) {
 		Session->PendingAutoDecisionBase.clear();
 		Session->PendingAutoDecisionOrder.clear();
 	}
 	const auto clearProposal = [this]() {
-		Session->AutoProposalOrder.clear();
-		Session->AutoProposalBase.clear();
-		Session->AutoProposalSinceSeconds = 0.0;
+		Session->AutoProposals.clear();
 	};
 	if (Session->ArrivalSequence.size() < 2 || !CCallsignLookup::Available || CCallsignLookup::Lookup == nullptr) {
-		Session->AutoSequenceStatus = Session->ArrivalSequence.size() < 2 ? "Waiting for arrivals" :
-			"Optimization paused: configuration unavailable";
 		clearProposal();
 		return;
 	}
-	Session->AutoSequenceStatus = "Waiting for complete, fresh runway and speed data";
 	const double maxDistanceNm = CCallsignLookup::Lookup->getMaximumAutoDistanceNm();
 	CPosition airportPosition;
 	if (maxDistanceNm > 0.0 && !FindAirportPosition(GetPlugIn(), Session->AutoSequenceAirport, airportPosition)) {
-		Session->AutoSequenceStatus = "Airport position unavailable for maxDistance";
 		clearProposal();
 		return;
 	}
@@ -1733,20 +1778,17 @@ void RadarScreen::UpdateAutomaticProposal(double nowSeconds)
 		const CRadarTarget target = GetPlugIn()->RadarTargetSelect(callsign.c_str());
 		if (target.IsValid() && maxDistanceNm > 0.0 && !IsAutomaticDistanceEligible(
 			airportPosition.DistanceTo(target.GetPosition().GetPosition()), maxDistanceNm)) {
-			Session->AutoSequenceStatus = "Optimization paused: sequence aircraft outside maxDistance";
 			clearProposal();
 			return;
 		}
 		const auto motion = Session->PlanningMotion.find(callsign);
 		if (!target.IsValid() || target.GetGS() < 80 || target.GetPosition().GetReceivedTime() > 30 ||
 			motion == Session->PlanningMotion.end() || !motion->second.Initialized) {
-			Session->AutoSequenceStatus = "Waiting for fresh target and speed: " + callsign;
 			clearProposal();
 			return;
 		}
 		const CFlightPlan plan = target.GetCorrelatedFlightPlan();
 		if (!plan.IsValid()) {
-			Session->AutoSequenceStatus = "Waiting for flight plan: " + callsign;
 			clearProposal();
 			return;
 		}
@@ -1755,12 +1797,10 @@ void RadarScreen::UpdateAutomaticProposal(double nowSeconds)
 		const char* runway = data.GetArrivalRwy();
 		if (destination == nullptr || UppercaseIdentifier(destination) != Session->AutoSequenceAirport ||
 			runway == nullptr || runway[0] == '\0') {
-			Session->AutoSequenceStatus = "Waiting for destination or runway: " + callsign;
 			clearProposal();
 			return;
 		}
 		if (!CCallsignLookup::Lookup->isConfiguredArrivalRunway(Session->AutoSequenceAirport, runway)) {
-			Session->AutoSequenceStatus = "Runway not configured: " + callsign;
 			clearProposal();
 			return;
 		}
@@ -1771,7 +1811,6 @@ void RadarScreen::UpdateAutomaticProposal(double nowSeconds)
 		CPosition threshold;
 		if (!FindLocalizerMarkerPosition(GetPlugIn(), destination, runway, position, target.GetTrackHeading(),
 			0.0, marker, track, join, threshold)) {
-			Session->AutoSequenceStatus = "Runway geometry unavailable: " + callsign;
 			clearProposal();
 			return;
 		}
@@ -1784,7 +1823,6 @@ void RadarScreen::UpdateAutomaticProposal(double nowSeconds)
 			TurningPointMath::TurnRoute route;
 			if (!BuildAircraftLocalizerRoute(position, motion->second.TrackDegrees, motion->second.GroundSpeedKts,
 				join, threshold, route, cleared)) {
-				Session->AutoSequenceStatus = "Route geometry unavailable: " + callsign;
 				clearProposal();
 				return;
 			}
@@ -1795,7 +1833,6 @@ void RadarScreen::UpdateAutomaticProposal(double nowSeconds)
 		const auto speed = TurningSpeedProfile(target, plan, finalHeading, motion->second, *Session, WeatherService);
 		const double hours = TurningPointMath::TimeToThresholdHours(beforeFinalNm, finalNm, speed);
 		if (!std::isfinite(hours) || hours < 0.0 || !std::isfinite(speed.FinalKts) || speed.FinalKts <= 0.0) {
-			Session->AutoSequenceStatus = "Modeled speed unavailable: " + callsign;
 			clearProposal();
 			return;
 		}
@@ -1857,34 +1894,35 @@ void RadarScreen::UpdateAutomaticProposal(double nowSeconds)
 		return PreservesSequenceGapPairs(order, gapPairs, separationSeconds);
 	};
 	if (!preservesGaps(Session->ArrivalSequence)) {
-		Session->AutoSequenceStatus = "Optimization paused: GAP pair unavailable";
 		clearProposal();
 		return;
 	}
 	const double minimumImprovementSeconds = AutoSequenceMinimumAverageSavingSeconds;
-	const bool hasCurrentProposal = !Session->AutoProposalOrder.empty() &&
-		Session->AutoProposalBase == Session->ArrivalSequence;
-	std::map<std::string, double> currentDelayChanges;
-	const double currentImprovement = hasCurrentProposal
-		? SequenceProposalImprovementSeconds(estimates, Session->AutoProposalOrder, separationSeconds, preservesGaps, &currentDelayChanges)
-		: -std::numeric_limits<double>::infinity();
-	const bool currentProposalValid = std::isfinite(currentImprovement) && currentImprovement >= minimumImprovementSeconds &&
-		IsConservativeSequenceProposal(Session->ArrivalSequence, Session->AutoProposalOrder, currentDelayChanges);
-	if (selectedProposalCurrent && currentProposalValid) {
-		Session->ArrivalSequence = Session->AutoProposalOrder;
-		Session->SequenceDirty = true;
-		clearProposal();
-		Session->AutoRejectedBase.clear();
-		Session->AutoRejectedOrders.clear();
-		Session->AutoNextEvaluationSeconds = nowSeconds + AutoSequenceDecisionCooldownSeconds;
-		Session->AutoLastEvaluationBase = Session->ArrivalSequence;
-		Session->AutoSequenceStatus = "Paused after accepted suggestion";
-		SynchronizeSequenceMeasurements();
-		return;
+	const std::vector<AutoSequenceProposal> previousProposals = Session->AutoProposals;
+	std::vector<AutoSequenceProposal> retainedProposals;
+	for (const AutoSequenceProposal& proposal : previousProposals) {
+		if (proposal.Base != Session->ArrivalSequence)
+			continue;
+		std::map<std::string, double> delayChanges;
+		const double improvement = SequenceProposalImprovementSeconds(estimates, proposal.Order,
+			separationSeconds, preservesGaps, &delayChanges);
+		const bool valid = std::isfinite(improvement) && improvement >= minimumImprovementSeconds &&
+			IsConservativeSequenceProposal(Session->ArrivalSequence, proposal.Order, delayChanges);
+		if (selectedProposalCurrent && proposal.Order == pendingDecisionOrder && valid) {
+			Session->ArrivalSequence = proposal.Order;
+			Session->SequenceDirty = true;
+			clearProposal();
+			Session->AutoRejectedBase.clear();
+			Session->AutoRejectedOrders.clear();
+			Session->AutoLastEvaluationBase = Session->ArrivalSequence;
+			SynchronizeSequenceMeasurements();
+			return;
+		}
+		if (valid)
+			retainedProposals.push_back(proposal);
 	}
-	if (currentProposalValid && ShouldRetainSequenceProposal(currentImprovement, minimumImprovementSeconds,
-		nowSeconds, Session->AutoProposalSinceSeconds)) {
-		Session->AutoSequenceStatus = "Optimization proposal awaiting review";
+	if (!retainedProposals.empty()) {
+		Session->AutoProposals = retainedProposals;
 		return;
 	}
 	const auto acceptableProposal = [&estimates, &separationSeconds, &preservesGaps, this](const std::vector<std::string>& order) {
@@ -1895,28 +1933,23 @@ void RadarScreen::UpdateAutomaticProposal(double nowSeconds)
 	};
 	const SequenceOptimization refreshed = BestSequenceInsertionImprovement(estimates, separationSeconds,
 		Session->AutoRejectedOrders, 25000000, acceptableProposal);
-	Session->AutoSequenceStatus = refreshed.SearchComplete ? "Monitoring modeled delay" : "Partial search: large sequence";
-	const bool wasVisible = !Session->AutoProposalOrder.empty();
-	const bool sameProposal = currentProposalValid && refreshed.Order == Session->AutoProposalOrder;
-	const double previousSince = Session->AutoProposalSinceSeconds;
 	clearProposal();
-	if (refreshed.Order.empty() || refreshed.AverageImprovementSeconds < minimumImprovementSeconds) {
-		const auto lastLocked = std::find_if(estimates.rbegin(), estimates.rend(),
-			[](const SequenceArrivalEstimate& arrival) { return arrival.Locked; });
-		if (lastLocked != estimates.rend())
-			Session->AutoSequenceStatus = "No beneficial move; last LOCALIZERPOINT lock: " + lastLocked->Callsign;
-		else
-			Session->AutoSequenceStatus = refreshed.SearchComplete ? "No beneficial move found" :
-				"No beneficial move in partial search";
+	if (refreshed.Candidates.empty()) {
 		return;
 	}
-	Session->AutoProposalBase = Session->ArrivalSequence;
-	Session->AutoProposalOrder = refreshed.Order;
-	Session->AutoProposalSinceSeconds = sameProposal ? previousSince : nowSeconds;
-	Session->AutoSequenceStatus = refreshed.SearchComplete ? "Optimization proposal awaiting review" :
-		"Optimization proposal awaiting review; partial search";
-	if (!wasVisible)
-		GetPlugIn()->DisplayUserMessage(PLUGIN_NAME.c_str(), "Sequence", "Auto sequence has an optimization proposal", true, false, false, false, false);
+	constexpr size_t maximumVisibleProposals = 5;
+	const auto candidates = BestNonConflictingSequenceProposals(Session->ArrivalSequence,
+		refreshed.Candidates, maximumVisibleProposals);
+	bool hasNewProposal = false;
+	for (const SequenceOptimization::Candidate& candidate : candidates) {
+		Session->AutoProposals.push_back({ Session->ArrivalSequence, candidate.Order });
+		const bool previouslyVisible = std::any_of(previousProposals.begin(), previousProposals.end(),
+			[&candidate](const AutoSequenceProposal& previous) { return previous.Order == candidate.Order; });
+		hasNewProposal = hasNewProposal || !previouslyVisible;
+	}
+	if (hasNewProposal) {
+		GetPlugIn()->DisplayUserMessage(PLUGIN_NAME.c_str(), "Sequence", "Auto sequence has new optimization proposals", true, false, false, false, false);
+	}
 }
 
 void RadarScreen::SynchronizeSequenceMeasurements()

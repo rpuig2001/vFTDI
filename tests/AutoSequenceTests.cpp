@@ -106,11 +106,6 @@ int main()
 		!IsCurrentSequenceProposal(base, base, proposal.Order, proposal, 61.0) &&
 		!IsCurrentSequenceProposal(base, base, base, proposal, 5.0),
 		"changed order, stale proposal, and insufficient improvement cannot be accepted");
-	Check(ShouldRetainSequenceProposal(1.0, 1.0, 129.9, 100.0) &&
-		!ShouldRetainSequenceProposal(1.0, 1.0, 130.0, 100.0) &&
-		!ShouldRetainSequenceProposal(0.9, 1.0, 110.0, 100.0) &&
-		!ShouldRetainSequenceProposal(2.0, 1.0, 99.0, 100.0),
-		"a valid beneficial suggestion stays visible for up to thirty seconds without reviving stale proposals");
 	Check(!ShouldEvaluateAutomaticSequence(110.0, 160.0, base, base, false) &&
 		ShouldEvaluateAutomaticSequence(160.0, 160.0, base, base, false) &&
 		ShouldEvaluateAutomaticSequence(110.0, 160.0, proposal.Order, base, false) &&
@@ -123,6 +118,31 @@ int main()
 	const auto secondChoice = BestSequenceInsertionImprovement(reversed, spacing, { firstChoice.Order });
 	Check(!firstChoice.Order.empty() && !secondChoice.Order.empty() && firstChoice.Order != secondChoice.Order,
 		"a declined proposal does not hide another beneficial swap");
+	Check(firstChoice.Candidates.size() >= 2 &&
+		std::any_of(firstChoice.Candidates.begin(), firstChoice.Candidates.end(), [&firstChoice](const auto& candidate) {
+			return candidate.Order == firstChoice.Order;
+		}), "optimization returns multiple individually beneficial proposals including its best move");
+	const std::vector<std::string> proposalBase = { "A", "B", "C", "D", "E" };
+	const std::vector<SequenceOptimization::Candidate> overlappingProposals = {
+		{ { "C", "A", "B", "D", "E" }, 20.0 },
+		{ { "A", "D", "B", "C", "E" }, 15.0 },
+		{ { "B", "A", "C", "D", "E" }, 10.0 },
+		{ { "E", "A", "B", "C", "D" }, 25.0 }
+	};
+	const auto selectedProposals = BestNonConflictingSequenceProposals(proposalBase, overlappingProposals, 5);
+	std::set<std::string> proposalCallsigns;
+	bool includesBestProposal = false;
+	for (const auto& candidate : selectedProposals) {
+		std::string movedCallsign;
+		std::string beforeCallsign;
+		Check(SequenceProposalMove(proposalBase, candidate.Order, movedCallsign, beforeCallsign),
+			"selected concurrent proposal is a valid single move");
+		Check(proposalCallsigns.insert(movedCallsign).second && proposalCallsigns.insert(beforeCallsign).second,
+			"a flight appears in no more than one selected proposal");
+		includesBestProposal = includesBestProposal || candidate.Order == overlappingProposals.back().Order;
+	}
+	Check(selectedProposals.size() == 2 && includesBestProposal,
+		"proposal conflicts are resolved by keeping the best moves for distinct flights");
 	arrivals[0].Locked = true;
 	Check(BestSequenceInsertionImprovement(arrivals, spacing).Order.empty(), "locked aircraft cannot be moved");
 	arrivals[0].Locked = false;

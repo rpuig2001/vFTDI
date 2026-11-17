@@ -23,16 +23,22 @@ public:
 
 	explicit CCallsignLookup(const std::string& fileName);
 	int getValue(const std::string& key) const;
+	bool isMode2() const { return displayMode == 2; }
+	double getMode2Setting(const std::string& key, double fallback) const;
 	int getMinimumAltitude() const;
 	static std::string normalizeRunway(const std::string& runway);
 	bool isConfiguredArrivalRunway(const std::string& airport, const std::string& runway) const;
 	bool hasConfiguredArrivalRunways(const std::string& airport) const;
 	double getMaximumAutoDistanceNm() const;
 	int getDefaultVisibleRows() const;
+	std::string getProposalTagText() const;
+	bool getProposalsEnabled() const { return proposalsEnabled; }
 	int getMarkerSizePixels(bool finalTarget) const;
 	double getMinimumDistanceNm() const;
 	double getMinimumParallelDependentDistanceNm() const;
 	double getFinalBufferNm() const;
+	double getRequiredSpacingNm(char precedingWake, char succeedingWake,
+		const char* precedingAircraftInfo, const char* succeedingAircraftInfo) const;
 	bool getShowLocalizerRoute() const;
 	bool toggleShowLocalizerRoute();
 	bool getDependentMode() const;
@@ -64,6 +70,8 @@ public:
 private:
 	std::map<std::string, int> configValues;
 	std::map<std::string, RgbColor> markerColors;
+	std::map<std::string, double> mode2Settings;
+	int displayMode = 1;
 	std::map<std::string, double> localizerPointDistancesNm;
 	std::map<std::string, double> localizerCoursesDegrees;
 	std::set<std::pair<std::string, std::string>> configuredRunways;
@@ -71,6 +79,8 @@ private:
 	std::map<std::string, std::map<std::string, RunwayPairMode>> profileRunwayPairModes;
 	std::vector<std::string> profileNames;
 	std::string defaultProfile;
+	std::string proposalTagText = "P";
+	bool proposalsEnabled = true;
 	std::vector<std::string> airportCodes;
 	std::map<std::string, char> recatCategories;
 	std::map<std::string, double> wakeSeparations{

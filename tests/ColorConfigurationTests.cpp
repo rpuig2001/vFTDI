@@ -1,4 +1,6 @@
 #include "../src/DisplayColors.h"
+#include "../src/SeparationMath.h"
+#include "../src/FTDiSession.h"
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -17,6 +19,33 @@ int main(int argumentCount, char** arguments)
 	if (argumentCount != 2)
 		return 1;
 	const char* path = arguments[1];
+	const std::pair<const char*, bool> proposalDefaults[] = {
+		{ "true", true }, { "TRUE", true }, { "ON", true }, { "1", true },
+		{ "false", false }, { "FALSE", false }, { "off", false }, { "0", false },
+		{ "invalid", true }, { "", true }, { "false extra", true }
+	};
+	for (int mode : { 1, 2 }) {
+		for (const auto& setting : proposalDefaults) {
+			{
+				std::ofstream config(path);
+				config << "[general]\nmode = " << mode << "\nproposalsEnabled = " << setting.first << '\n';
+			}
+			CCallsignLookup startup(path);
+			FTDiSession startupSession;
+			startupSession.ProposalsEnabled = startup.getProposalsEnabled();
+			if (startupSession.ProposalsEnabled != setting.second)
+				return 1;
+			startupSession.ToggleProposals();
+			if (startupSession.ProposalsEnabled == setting.second)
+				return 1;
+		}
+	}
+	{
+		std::ofstream config(path);
+		config << "[general]\nproposalsEnabled = false\nproposalsEnabled = invalid\n";
+	}
+	if (CCallsignLookup(path).getProposalsEnabled())
+		return 1;
 	const char* keys[] = {
 		"COLOR_FTD_TARGET", "COLOR_ITD_TARGET", "COLOR_FTD_ROUTE", "COLOR_ITD_ROUTE",
 		"COLOR_GAP_TARGET", "COLOR_BREACH_ALERT", "COLOR_SELECTION_TEXT", "COLOR_TURN_POINT",
@@ -30,13 +59,17 @@ int main(int argumentCount, char** arguments)
 	};
 	{
 		std::ofstream config(path);
-		config << "[colors]\n";
+		config << "[colors.mode1]\n";
 		for (const char* key : keys)
 			config << (key + 6) << " = 12, 34, 56\n";
 		config << "PANEL_BACKGROUND = -1, 0, 0\nTURN_POINT = 256, 0, 0\n";
 		config << "TOOLTIP_TEXT = 1, 2\nPANEL_TEXT = 0, 255, 0\n";
 	}
 	CCallsignLookup configured(path);
+	if (!configured.getProposalsEnabled())
+		return 1;
+	if (configured.isMode2())
+		return 1;
 	if (configured.getMarkerSizePixels(false) != 22 || configured.getMarkerSizePixels(true) != 26) {
 		std::cerr << "FAIL: FTD should default slightly larger than ITD\n";
 		return 1;
@@ -52,7 +85,7 @@ int main(int argumentCount, char** arguments)
 		return 1;
 	{
 		std::ofstream config(path);
-		config << "[colors]\nFTD_TARGET = 1, 2, 3\nITD_TARGET = 4, 5, 6\n";
+		config << "[colors.mode1]\nFTD_TARGET = 1, 2, 3\nITD_TARGET = 4, 5, 6\n";
 		config << "TURN_POINT = 300, 0, 0\n";
 		config << "[general]\nftdMarkerSize = 10\nitdMarkerSize = 30\n";
 	}
@@ -90,6 +123,100 @@ int main(int argumentCount, char** arguments)
 	CCallsignLookup invalid(path);
 	if (invalid.getMarkerSizePixels(true) != 26 || invalid.getMarkerSizePixels(false) != 22)
 		return 1;
+	{
+		std::ofstream config(path);
+		config << "[general]\nmode = 2\n[mode2]\npredictionMarginNm = 0.75\n";
+		config << "localizerToleranceNm = -1\nheadingToleranceDegrees = invalid\n";
+		config << "[colors]\nPANEL_TEXT = 1, 2, 3\nPANEL_ACCENT = 1, 2, 3\n";
+		config << "[colors.mode1]\nPANEL_ACCENT = 10, 20, 30\n";
+		config << "[colors.mode2]\nSEPARATION_NORMAL = 40, 50, 60\nPANEL_TEXT = 7, 8, 9\n";
+		config << "SEPARATION_BREACH = 999, 0, 0\n";
+	}
+	CCallsignLookup mode2(path);
+	if (!mode2.isMode2() || mode2.getMode2Setting("predictionMarginNm", 0.5) != 0.75 ||
+		mode2.getMode2Setting("localizerToleranceNm", 0.5) != 0.5 ||
+		mode2.getMode2Setting("headingToleranceDegrees", 30.0) != 30.0)
+		return 1;
+	CheckColor(mode2.getMarkerColor("COLOR_SEPARATION_NORMAL"), 40, 50, 60, "mode 2 independent palette");
+	CheckColor(mode2.getMarkerColor("COLOR_PANEL_TEXT"), 7, 8, 9, "mode 2 panel palette");
+	CheckColor(mode2.getMarkerColor("COLOR_PANEL_ACCENT"), 105, 158, 181, "mode 2 ignores shared and mode 1 palettes");
+	CheckColor(mode2.getMarkerColor("COLOR_SEPARATION_BREACH"), 255, 226, 62, "invalid mode color fallback");
+	{
+		std::ofstream config(path);
+		config << "[general]\nmode = 1\nmode = 3\n[colors]\nPANEL_TEXT = 1, 2, 3\n";
+		config << "[colors.mode1]\nFTD_TARGET = 10, 20, 30\n";
+		config << "[colors.mode2]\nPANEL_TEXT = 40, 50, 60\n";
+	}
+	CCallsignLookup mode1(path);
+	if (mode1.isMode2())
+		return 1;
+	CheckColor(mode1.getMarkerColor("COLOR_FTD_TARGET"), 10, 20, 30, "mode 1 independent palette");
+	CheckColor(mode1.getMarkerColor("COLOR_FTD_ROUTE"), 10, 20, 30, "mode route inheritance");
+	CheckColor(mode1.getMarkerColor("COLOR_PANEL_TEXT"), 29, 34, 37, "mode 1 ignores shared and mode 2 palettes");
+	if (!SeparationMath::Mode2LeaderEstablished(10.0, 0.5, 30.0, 0.5, 30.0) ||
+		SeparationMath::Mode2LeaderEstablished(10.0, 0.51, 0.0, 0.5, 30.0) ||
+		SeparationMath::Mode2LeaderEstablished(10.0, 0.0, 31.0, 0.5, 30.0) ||
+		SeparationMath::Mode2LeaderEstablished(-1.0, 0.0, 0.0, 0.5, 30.0))
+		return 1;
+	const auto checkState = [](bool established, double follower, const char* expected) {
+		if (std::string(SeparationMath::Mode2ColorKey(established, follower, 14.0, 0.5, false)) != expected)
+			std::exit(1);
+	};
+	checkState(true, 13.9, "COLOR_SEPARATION_BREACH");
+	checkState(true, 14.0, "COLOR_SEPARATION_PREDICTION");
+	checkState(true, 14.49, "COLOR_SEPARATION_PREDICTION");
+	checkState(true, 14.5, "COLOR_SEPARATION_NORMAL");
+	checkState(false, 13.9, "COLOR_SEPARATION_NORMAL");
+	if (std::string(SeparationMath::Mode2ColorKey(false, 13.9, 14.0, 0.5, true)) != "COLOR_SEPARATION_MANUAL")
+		return 1;
+	for (int mode : { 1, 2 }) {
+		for (const char* scheme : { "WTC", "RECAT-EU" }) {
+			{
+				std::ofstream config(path);
+				config << "[general]\nmode = " << mode << "\n[separation]\nscheme = " << scheme << '\n';
+				config << "minimumDistanceNm = 3.5\nfinalBufferNm = 0.5\n";
+				config << "[recat]\nA = A388\nD = A320\n[recat.separation]\nA_D = 6\n";
+				config << "[profile.DEP]\nEDDF.25L.25R = DEPENDANT\n[profile.IND]\nEDDF.25L.25R = INDEPENDENT\n";
+			}
+			CCallsignLookup shared(path);
+			if (shared.getRequiredSpacingNm('H', 'M', "A388", "A320") != (std::string(scheme) == "WTC" ? 5.5 : 6.5) ||
+				shared.getRequiredSpacingNm('M', 'M', "UNKNOWN", "UNKNOWN") != 4.0 ||
+				shared.getRunwayPairMode("DEP", "EDDF", "25L", "EDDF", "25R") != CCallsignLookup::RunwayPairMode::Dependant ||
+				shared.getRunwayPairMode("IND", "EDDF", "25L", "EDDF", "25R") != CCallsignLookup::RunwayPairMode::Independent)
+				return 1;
+		}
+	}
 	std::remove(path);
-	std::cout << "All marker-size hierarchy/limits and 31 color configuration checks passed.\n";
+	FTDiSession session;
+	session.ArrivalSequence = { "FIRST", "SECOND", "THIRD" };
+	session.AutoSequenceAirport = "EDDF";
+	const AutoSequenceProposal proposal{ session.ArrivalSequence, { "SECOND", "FIRST", "THIRD" } };
+	session.AutoProposals.push_back(proposal);
+	if (!session.ProposalsEnabled || FindCurrentAutoProposal(session, proposal.Order) == nullptr ||
+		!HasCurrentAutoProposalInvolving(session, "SECOND"))
+		return 1;
+	session.AutoProposalMenuOrders.push_back(proposal.Order);
+	session.PendingAutoDecisionBase = proposal.Base;
+	session.PendingAutoDecisionOrder = proposal.Order;
+	session.AutoPreviewBase = proposal.Base;
+	session.AutoPreviewOrder = proposal.Order;
+	session.AutoAcceptRequested = true;
+	session.AutoNextEvaluationSeconds = 123.0;
+	session.AutoLastEvaluationBase = proposal.Base;
+	session.AutoRejectedBase = proposal.Base;
+	session.AutoRejectedOrders.push_back(proposal.Order);
+	session.ToggleProposals();
+	if (session.ProposalsEnabled || !session.AutoProposals.empty() || !session.AutoProposalMenuOrders.empty() ||
+		!session.PendingAutoDecisionBase.empty() || !session.PendingAutoDecisionOrder.empty() ||
+		!session.AutoPreviewBase.empty() || !session.AutoPreviewOrder.empty() || session.AutoAcceptRequested ||
+		session.AutoNextEvaluationSeconds != 0.0 || !session.AutoLastEvaluationBase.empty() ||
+		session.AutoSequenceAirport != "EDDF" || session.ArrivalSequence != proposal.Base || session.AutoRejectedOrders.empty())
+		return 1;
+	session.AutoProposals.push_back(proposal);
+	if (FindCurrentAutoProposal(session, proposal.Order) != nullptr || HasCurrentAutoProposalInvolving(session, "SECOND"))
+		return 1;
+	session.ToggleProposals();
+	if (!session.ProposalsEnabled || !session.AutoProposals.empty() || session.AutoNextEvaluationSeconds != 0.0)
+		return 1;
+	std::cout << "All color, mode, spacing/alert, and proposal-toggle checks passed.\n";
 }

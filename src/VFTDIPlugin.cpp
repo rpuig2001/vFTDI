@@ -49,6 +49,7 @@ VFTDIPlugin::VFTDIPlugin()
     CCallsignLookup::Lookup = new CCallsignLookup(configPath + "config.ini");
     Session->ActiveProfile = CCallsignLookup::Lookup->getDefaultProfile();
     Session->ManagerVisibleRows = CCallsignLookup::Lookup->getDefaultVisibleRows();
+    Session->ProposalsEnabled = CCallsignLookup::Lookup->getProposalsEnabled();
         WeatherService.reset(new AirportWeatherService(CCallsignLookup::Lookup->getAirportCodes()));
 
     KeyPollingThread = std::thread([this]() {
@@ -165,10 +166,23 @@ void VFTDIPlugin::OnGetTagItem(CFlightPlan FlightPlan, CRadarTarget RadarTarget,
         : (RadarTarget.IsValid() ? RadarTarget.GetCallsign() : nullptr);
     if (callsign == nullptr)
         return;
+    if (ItemCode == TAG_ITEM_SEQUENCE_NUMBER && CCallsignLookup::Lookup != nullptr &&
+        CCallsignLookup::Lookup->isMode2()) {
+        if (Session->Mode2UnsequencedArrivals.count(callsign) != 0) {
+            std::strcpy(sItemString, "--");
+            *pRGB = ConfiguredColor("COLOR_SEQUENCE_INVALID");
+            return;
+        }
+        const auto pair = std::find_if(Session->WakeMeasurements.begin(), Session->WakeMeasurements.end(),
+            [callsign](const WakeMeasurement& measurement) { return measurement.SucceedingCallsign == callsign; });
+        if (pair != Session->WakeMeasurements.end() && pair->Mode2SequenceInvalid)
+            *pRGB = ConfiguredColor("COLOR_SEQUENCE_INVALID");
+    }
     if (ItemCode == TAG_ITEM_SEQUENCE_SUGGESTION) {
-        if (SequenceProposalInvolves(Session->ArrivalSequence, Session->AutoProposalBase,
-            Session->AutoProposalOrder, callsign))
-            std::snprintf(sItemString, 16, "P");
+        if (HasCurrentAutoProposalInvolving(*Session, callsign) && CCallsignLookup::Lookup != nullptr) {
+            const std::string proposalText = CCallsignLookup::Lookup->getProposalTagText();
+            std::snprintf(sItemString, 16, "%s", proposalText.c_str());
+        }
         return;
     }
     const size_t number = SequenceNumber(Session->ArrivalSequence, callsign);
@@ -184,15 +198,31 @@ void VFTDIPlugin::OnFunctionCall(int FunctionId, const char* sItemString, POINT 
         const CRadarTarget radarTarget = RadarTargetSelectASEL();
         const char* callsign = flightPlan.IsValid() ? flightPlan.GetCallsign()
             : (radarTarget.IsValid() ? radarTarget.GetCallsign() : nullptr);
-        if (callsign != nullptr && SequenceProposalInvolves(Session->ArrivalSequence,
-            Session->AutoProposalBase, Session->AutoProposalOrder, callsign))
-            OpenAutoSuggestionMenu(this, *Session, Area);
+        if (callsign != nullptr && HasCurrentAutoProposalInvolving(*Session, callsign))
+            OpenAutoSuggestionMenu(this, *Session, Area, callsign);
+        return;
+    }
+    if (FunctionId == FUNCTION_AUTO_SELECT_PROPOSAL) {
+        if (sItemString == nullptr)
+            return;
+        const std::string selectedLabel(sItemString);
+        const auto selected = std::find_if(Session->AutoProposalMenuOrders.begin(), Session->AutoProposalMenuOrders.end(),
+            [&selectedLabel, this](const std::vector<std::string>& order) {
+                std::string moved;
+                std::string before;
+                return SequenceProposalMove(Session->ArrivalSequence, order, moved, before) &&
+                    selectedLabel == "Move " + moved + " before " + before;
+            });
+        if (selected == Session->AutoProposalMenuOrders.end())
+            return;
+        const std::vector<std::string> order = *selected;
+        Session->AutoProposalMenuOrders.clear();
+        OpenAutoSuggestionDecisionMenu(this, *Session, order, Area);
         return;
     }
     if (FunctionId == FUNCTION_AUTO_ACCEPT || FunctionId == FUNCTION_AUTO_DECLINE) {
-        const bool current = IsSameLiveSequenceProposal(Session->ArrivalSequence,
-            Session->AutoProposalBase, Session->AutoProposalOrder,
-            Session->PendingAutoDecisionBase, Session->PendingAutoDecisionOrder);
+        const bool current = Session->PendingAutoDecisionBase == Session->ArrivalSequence &&
+            FindCurrentAutoProposal(*Session, Session->PendingAutoDecisionOrder) != nullptr;
         if (!current) {
             Session->PendingAutoDecisionBase.clear();
             Session->PendingAutoDecisionOrder.clear();
@@ -208,14 +238,16 @@ void VFTDIPlugin::OnFunctionCall(int FunctionId, const char* sItemString, POINT 
             Session->AutoAcceptRequested = true;
         }
         else {
-            Session->AutoRejectedBase = Session->AutoProposalBase;
-            Session->AutoRejectedOrders.push_back(Session->AutoProposalOrder);
-            Session->AutoProposalOrder.clear();
-            Session->AutoProposalBase.clear();
+            Session->AutoRejectedBase = Session->PendingAutoDecisionBase;
+            Session->AutoRejectedOrders.push_back(Session->PendingAutoDecisionOrder);
+            const std::vector<std::string> declinedOrder = Session->PendingAutoDecisionOrder;
+            const std::vector<std::string> declinedBase = Session->PendingAutoDecisionBase;
+            Session->AutoProposals.erase(std::remove_if(Session->AutoProposals.begin(), Session->AutoProposals.end(),
+                [&declinedOrder, &declinedBase](const AutoSequenceProposal& proposal) {
+                    return proposal.Base == declinedBase && proposal.Order == declinedOrder;
+                }), Session->AutoProposals.end());
             Session->AutoAcceptRequested = false;
-            Session->AutoNextEvaluationSeconds = GetTickCount64() / 1000.0 + AutoSequenceDecisionCooldownSeconds;
             Session->AutoLastEvaluationBase = Session->ArrivalSequence;
-            Session->AutoSequenceStatus = "Paused after declined suggestion";
             Session->PendingAutoDecisionBase.clear();
             Session->PendingAutoDecisionOrder.clear();
         }
@@ -228,10 +260,9 @@ void VFTDIPlugin::OnFunctionCall(int FunctionId, const char* sItemString, POINT 
     if (FunctionId == FUNCTION_AUTO_DISABLE) {
         SuggestionMenuActive.store(false);
         Session->AutoSequenceAirport.clear();
-        Session->AutoSequenceStatus.clear();
         Session->AutoAddedCallsigns.clear();
-        Session->AutoProposalOrder.clear();
-        Session->AutoProposalBase.clear();
+        Session->AutoProposals.clear();
+        Session->AutoProposalMenuOrders.clear();
         Session->PendingAutoDecisionBase.clear();
         Session->PendingAutoDecisionOrder.clear();
         Session->AutoPreviewBase.clear();
@@ -259,11 +290,10 @@ void VFTDIPlugin::OnFunctionCall(int FunctionId, const char* sItemString, POINT 
         }
         Session->AutoSequenceAirport = airport;
         SuggestionMenuActive.store(false);
-        Session->AutoSequenceStatus = "Scanning arrivals";
         Session->AutoNextEvaluationSeconds = 0.0;
         Session->AutoLastEvaluationBase.clear();
-        Session->AutoProposalOrder.clear();
-        Session->AutoProposalBase.clear();
+        Session->AutoProposals.clear();
+        Session->AutoProposalMenuOrders.clear();
         Session->PendingAutoDecisionBase.clear();
         Session->PendingAutoDecisionOrder.clear();
         Session->AutoPreviewBase.clear();

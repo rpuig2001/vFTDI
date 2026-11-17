@@ -92,6 +92,7 @@ std::string IniDirective(const std::string& section, const std::string& key)
 	const auto sectionParts = Split(section, '.');
 	const std::string normalizedKey = UppercaseIdentifier(key);
 	if (section == "GENERAL") {
+		if (normalizedKey == "MODE") return "DISPLAYMODE";
 		if (normalizedKey == "MINIMUMALTITUDE") return "MINALTITUDE";
 		if (normalizedKey == "MAXDISTANCE") return "MAXAUTODISTANCE";
 		if (normalizedKey == "DEFAULTROWS") return "DEFAULTROWS";
@@ -99,6 +100,8 @@ std::string IniDirective(const std::string& section, const std::string& key)
 		if (normalizedKey == "ITDMARKERSIZE") return "ITDMARKERSIZE";
 		if (normalizedKey == "SHOWLOCALIZERROUTE") return "SHOWLOCALIZERROUTE";
 		if (normalizedKey == "SEQUENCEMODE") return "SEQUENCEMODE";
+		if (normalizedKey == "PROPOSALTAGTEXT") return "PROPOSALTAGTEXT";
+		if (normalizedKey == "PROPOSALSENABLED") return "PROPOSALSENABLED";
 	}
 	if (section == "PROFILES" && normalizedKey == "DEFAULT")
 		return "DEFAULTPROFILE";
@@ -123,8 +126,10 @@ std::string IniDirective(const std::string& section, const std::string& key)
 			normalizedKey.compare(0, 17, "FINALAPPROACHSPEED_") == 0)
 			return normalizedKey;
 	}
-	if (section == "COLORS")
-		return "COLOR_" + normalizedKey;
+	if (section == "COLORS.MODE1" || section == "COLORS.MODE2")
+		return section.substr(7) + "_COLOR_" + normalizedKey;
+	if (section == "MODE2")
+		return "MODE2SETTING_" + normalizedKey;
 	if (sectionParts.size() == 3 && sectionParts[0] == "RUNWAYS") {
 		const std::string runway = NormalizeRunway(sectionParts[2]);
 		const std::string runwayKey = runway.empty() ? sectionParts[2] : runway;
@@ -211,6 +216,26 @@ CCallsignLookup::CCallsignLookup(const std::string& fileName)
 		std::string key;
 		if (!(parser >> key))
 			continue;
+		if (key == "DISPLAYMODE") {
+			int value;
+			if (parser >> value && (value == 1 || value == 2))
+				displayMode = value;
+			continue;
+		}
+		if (key.compare(0, 13, "MODE2SETTING_") == 0) {
+			double value;
+			if (parser >> value && std::isfinite(value) && value >= 0.0)
+				mode2Settings[key.substr(13)] = value;
+			continue;
+		}
+		if (key.compare(0, 12, "MODE1_COLOR_") == 0 || key.compare(0, 12, "MODE2_COLOR_") == 0) {
+			RgbColor color;
+			if (parser >> color.Red >> color.Green >> color.Blue &&
+				color.Red >= 0 && color.Red <= 255 && color.Green >= 0 && color.Green <= 255 &&
+				color.Blue >= 0 && color.Blue <= 255)
+				markerColors[key] = color;
+			continue;
+		}
 		if (key == "PROFILE") {
 			std::string profile;
 			if (parser >> profile) {
@@ -235,6 +260,25 @@ CCallsignLookup::CCallsignLookup(const std::string& fileName)
 					useRecatEu = false;
 				else if (value == "RECAT-EU" || value == "RECATEU")
 					useRecatEu = true;
+			}
+			continue;
+		}
+		if (key == "PROPOSALSENABLED") {
+			std::string value;
+			std::getline(parser, value);
+			value = UppercaseIdentifier(Trim(value));
+			if (value == "TRUE" || value == "ON" || value == "1")
+				proposalsEnabled = true;
+			else if (value == "FALSE" || value == "OFF" || value == "0")
+				proposalsEnabled = false;
+			continue;
+		}
+		if (key == "PROPOSALTAGTEXT") {
+			std::string value;
+			if (std::getline(parser, value)) {
+				value = Trim(value);
+				if (value.size() <= 15)
+				proposalTagText = UppercaseIdentifier(value) == "NONE" ? std::string() : value;
 			}
 			continue;
 		}
@@ -331,15 +375,6 @@ CCallsignLookup::CCallsignLookup(const std::string& fileName)
 			double value;
 			if (parser >> value && std::isfinite(value) && value >= 0.0 && value < 360.0)
 				localizerCoursesDegrees[key.substr(16)] = value;
-			continue;
-		}
-		if (key.compare(0, 6, "COLOR_") == 0) {
-			RgbColor color;
-			if (parser >> color.Red >> color.Green >> color.Blue &&
-				color.Red >= 0 && color.Red <= 255 &&
-				color.Green >= 0 && color.Green <= 255 &&
-				color.Blue >= 0 && color.Blue <= 255)
-				markerColors[key] = color;
 			continue;
 		}
 		if (key == "AIRPORTS") {
@@ -462,6 +497,11 @@ int CCallsignLookup::getDefaultVisibleRows() const
 	return (std::max)(1, value->second);
 }
 
+std::string CCallsignLookup::getProposalTagText() const
+{
+	return proposalTagText;
+}
+
 int CCallsignLookup::getMarkerSizePixels(bool finalTarget) const
 {
 	const auto value = configValues.find(finalTarget ? "FTDMARKERSIZE" : "ITDMARKERSIZE");
@@ -483,6 +523,14 @@ double CCallsignLookup::getMinimumParallelDependentDistanceNm() const
 double CCallsignLookup::getFinalBufferNm() const
 {
 	return finalBufferNm;
+}
+
+double CCallsignLookup::getRequiredSpacingNm(char precedingWake, char succeedingWake,
+	const char* precedingAircraftInfo, const char* succeedingAircraftInfo) const
+{
+	double baseDistanceNm = minimumDistanceNm;
+	getWakeSeparation(precedingWake, succeedingWake, precedingAircraftInfo, succeedingAircraftInfo, baseDistanceNm);
+	return baseDistanceNm + finalBufferNm;
 }
 
 bool CCallsignLookup::getShowLocalizerRoute() const
@@ -633,11 +681,17 @@ bool CCallsignLookup::getLocalizerCourseDegrees(
 	return true;
 }
 
+double CCallsignLookup::getMode2Setting(const std::string& key, double fallback) const
+{
+	const auto value = mode2Settings.find(UppercaseIdentifier(key));
+	return value != mode2Settings.end() ? value->second : fallback;
+}
+
 CCallsignLookup::RgbColor CCallsignLookup::getMarkerColor(const std::string& key) const
 {
-	const auto value = markerColors.find(key);
-	if (value != markerColors.end())
-		return value->second;
+	const auto modeColor = markerColors.find(std::string(isMode2() ? "MODE2_" : "MODE1_") + key);
+	if (modeColor != markerColors.end())
+		return modeColor->second;
 	if (key == "COLOR_FTD_ROUTE")
 		return getMarkerColor("COLOR_FTD_TARGET");
 	if (key == "COLOR_ITD_ROUTE")
@@ -648,6 +702,12 @@ CCallsignLookup::RgbColor CCallsignLookup::getMarkerColor(const std::string& key
 CCallsignLookup::RgbColor CCallsignLookup::getDefaultColor(const std::string& key)
 {
 	static const std::map<std::string, RgbColor> defaults{
+		{ "COLOR_SEPARATION_NORMAL", { 155, 210, 235 } },
+		{ "COLOR_SEPARATION_PREDICTION", { 0, 100, 160 } },
+		{ "COLOR_SEPARATION_BREACH", { 255, 226, 62 } },
+		{ "COLOR_SEPARATION_MANUAL", { 255, 165, 0 } },
+		{ "COLOR_SEPARATION_ROUTE", { 255, 75, 75 } },
+		{ "COLOR_SEQUENCE_INVALID", { 255, 60, 60 } },
 		{ "COLOR_FTD_TARGET", { 255, 75, 75 } },
 		{ "COLOR_ITD_TARGET", { 0, 120, 255 } },
 		{ "COLOR_GAP_TARGET", { 255, 226, 62 } },
