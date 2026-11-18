@@ -624,6 +624,25 @@ bool CCallsignLookup::getWakeSeparation(char preceding, char succeeding,
 	return true;
 }
 
+std::string CCallsignLookup::getDisplayWakeCategory(char wakeCategory, const char* aircraftInfo) const
+{
+	if (useRecatEu) {
+		const auto category = recatCategories.find(AircraftDesignator(aircraftInfo));
+		if (category == recatCategories.end())
+			return "?";
+		switch (category->second) {
+		case 'A': return "J";
+		case 'B': return "H+";
+		case 'C': return "H-";
+		case 'D': return "M+";
+		case 'E': return "M-";
+		case 'F': return "L+";
+		default: return "?";
+		}
+	}
+	return std::string(1, wakeCategory == 'J' ? 'S' : wakeCategory);
+}
+
 int CCallsignLookup::getSpeedReductionDistanceNm() const
 {
 	const auto value = configValues.find("SPEEDREDUCTIONNM");

@@ -51,6 +51,28 @@ int main(int argumentCount, char** arguments)
 	}
 	if (!CCallsignLookup(path).getSequenceUrl().empty())
 		return 1;
+	{
+		std::ofstream config(path);
+		config << "[separation]\nscheme = RECAT-EU\n[recat]\nA = A388\nB = B744\nC = B763\n";
+		config << "D = A320\nE = CRJ2\nF = E145\n";
+	}
+	CCallsignLookup recatBadges(path);
+	if (recatBadges.getDisplayWakeCategory('M', "a388/M-S") != "J" ||
+		recatBadges.getDisplayWakeCategory('M', "B744/M-S") != "H+" ||
+		recatBadges.getDisplayWakeCategory('M', "B763/M-S") != "H-" ||
+		recatBadges.getDisplayWakeCategory('M', "A320/M-S") != "M+" ||
+		recatBadges.getDisplayWakeCategory('M', "CRJ2/M-S") != "M-" ||
+		recatBadges.getDisplayWakeCategory('L', "E145/M-S") != "L+" ||
+		recatBadges.getDisplayWakeCategory('M', "ZZZZ/M-S") != "?")
+		return 1;
+	{
+		std::ofstream config(path);
+		config << "[separation]\nscheme = WTC\n";
+	}
+	CCallsignLookup wtcBadges(path);
+	if (wtcBadges.getDisplayWakeCategory('J', "A388/M-S") != "S" ||
+		wtcBadges.getDisplayWakeCategory('H', "A320/M-S") != "H")
+		return 1;
 	const std::pair<const char*, bool> proposalDefaults[] = {
 		{ "true", true }, { "TRUE", true }, { "ON", true }, { "1", true },
 		{ "false", false }, { "FALSE", false }, { "off", false }, { "0", false },

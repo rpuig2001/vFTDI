@@ -54,6 +54,7 @@ public:
 		const std::string& succeedingAirport, const std::string& succeedingRunway) const;
 	bool getWakeSeparation(char preceding, char succeeding, const char* precedingAircraftInfo,
 		const char* succeedingAircraftInfo, double& separationNm) const;
+	std::string getDisplayWakeCategory(char wakeCategory, const char* aircraftInfo) const;
 	int getSpeedReductionDistanceNm() const;
 	int getSpeedUntilReductionKts() const;
 	bool getReduceSpeedOnClearance() const;

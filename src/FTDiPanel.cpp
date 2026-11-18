@@ -79,29 +79,26 @@ void DrawButton(CDC& dc, const CRect& rect, const std::string& label, COLORREF f
 	dc.RestoreDC(savedState);
 }
 
-void DrawWakeCategoryBadge(CDC& dc, const CRect& area, char category)
+void DrawWakeCategoryBadge(CDC& dc, const CRect& area, const std::string& category)
 {
-	if (category == 'J')
-		category = 'S';
 	const char* colorKey = "COLOR_PANEL_DISABLED";
-	switch (category) {
-	case 'L': colorKey = "COLOR_PANEL_WAKE_L"; break;
-	case 'M': colorKey = "COLOR_PANEL_WAKE_M"; break;
-	case 'H': colorKey = "COLOR_PANEL_WAKE_H"; break;
-	case 'S': colorKey = "COLOR_PANEL_WAKE_S"; break;
-	default: category = '?'; break;
-	}
-	const bool attention = category == 'H' || category == 'S';
+	if (category == "L" || category == "L+") colorKey = "COLOR_PANEL_WAKE_L";
+	else if (category == "M" || category == "M+" || category == "M-") colorKey = "COLOR_PANEL_WAKE_M";
+	else if (category == "H" || category == "H+" || category == "H-") colorKey = "COLOR_PANEL_WAKE_H";
+	else if (category == "S" || category == "J") colorKey = "COLOR_PANEL_WAKE_S";
+	const bool unknown = category.empty() || category == "?";
+	const bool attention = category == "J" || category == "H+" || category == "H-" ||
+		category == "H" || category == "S";
 	const int savedState = dc.SaveDC();
 	dc.FillSolidRect(area, ConfiguredColor(colorKey));
 	CFont font;
 	font.CreatePointFont(90, attention ? "Segoe UI Bold" : "Segoe UI", &dc);
 	dc.SelectObject(&font);
 	dc.SetBkMode(TRANSPARENT);
-	dc.SetTextColor(ConfiguredColor(category == 'H' || category == '?'
+	dc.SetTextColor(ConfiguredColor(category == "H+" || category == "H-" || category == "H" || unknown
 		? "COLOR_PANEL_TEXT" : "COLOR_PANEL_HEADER_TEXT"));
 	CRect textArea = area;
-	dc.DrawText(std::string(1, category).c_str(), &textArea, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+	dc.DrawText(category.c_str(), &textArea, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
 	dc.RestoreDC(savedState);
 }
 
@@ -257,7 +254,11 @@ void DrawSequenceRow(CRadarScreen* screen, CDC& dc, const CRect& row,
 			flightPlan = target.GetCorrelatedFlightPlan();
 	}
 	const char wakeCategory = flightPlan.IsValid() ? flightPlan.GetFlightPlanData().GetAircraftWtc() : '?';
-	DrawWakeCategoryBadge(dc, CRect(controlsLeft + 2, row.top + 2, controlsLeft + 22, row.top + 19), wakeCategory);
+	const char* aircraftInfo = flightPlan.IsValid() ? flightPlan.GetFlightPlanData().GetAircraftInfo() : nullptr;
+	const std::string displayedCategory = CCallsignLookup::Available && CCallsignLookup::Lookup != nullptr
+		? CCallsignLookup::Lookup->getDisplayWakeCategory(wakeCategory, aircraftInfo)
+		: std::string(1, wakeCategory == 'J' ? 'S' : wakeCategory);
+	DrawWakeCategoryBadge(dc, CRect(controlsLeft + 2, row.top + 2, controlsLeft + 22, row.top + 19), displayedCategory);
 
 	const CRect moveButton(row.right - 64, row.top + 2, row.right - 22, row.top + 19);
 	const CRect removeButton(row.right - 20, row.top + 2, row.right - 2, row.top + 19);
