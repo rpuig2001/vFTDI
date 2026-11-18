@@ -103,6 +103,7 @@ std::string IniDirective(const std::string& section, const std::string& key)
 		if (normalizedKey == "SEQUENCEMODE") return "SEQUENCEMODE";
 		if (normalizedKey == "PROPOSALTAGTEXT") return "PROPOSALTAGTEXT";
 		if (normalizedKey == "PROPOSALSENABLED") return "PROPOSALSENABLED";
+		if (normalizedKey == "SEQUENCEURL") return "SEQUENCEURL";
 	}
 	if (section == "PROFILES" && normalizedKey == "DEFAULT")
 		return "DEFAULTPROFILE";
@@ -272,6 +273,15 @@ CCallsignLookup::CCallsignLookup(const std::string& fileName)
 				proposalsEnabled = true;
 			else if (value == "FALSE" || value == "OFF" || value == "0")
 				proposalsEnabled = false;
+			continue;
+		}
+		if (key == "SEQUENCEURL") {
+			std::string value;
+			if (std::getline(parser, value)) {
+				value = Trim(value);
+				if (value.size() <= 2048)
+					sequenceUrl = value;
+			}
 			continue;
 		}
 		if (key == "PROPOSALTAGTEXT") {

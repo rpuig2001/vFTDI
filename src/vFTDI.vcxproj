@@ -133,6 +133,8 @@
   <ItemGroup>
     <ClInclude Include="Constants.h" />
     <ClInclude Include="AirportWeather.h" />
+    <ClInclude Include="SequenceFeed.h" />
+    <ClInclude Include="SequenceFeedData.h" />
     <ClInclude Include="CallsignLookup.h" />
     <ClInclude Include="DisplayColors.h" />
     <ClInclude Include="WakeShortcut.h" />
@@ -165,6 +167,7 @@
     </ClCompile>
     <ClCompile Include="VFTDIPlugin.cpp" />
     <ClCompile Include="AirportWeather.cpp" />
+    <ClCompile Include="SequenceFeed.cpp" />
     <ClCompile Include="RadarScreen.cpp" />
     <ClCompile Include="FTDiPanel.cpp" />
     <ClCompile Include="CallsignLookup.cpp" />

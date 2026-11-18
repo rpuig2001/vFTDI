@@ -9,6 +9,7 @@
 #include "Constants.h"
 #include "EuroScopePlugIn.h"
 #include "FTDiSession.h"
+#include "SequenceFeed.h"
 #include "WakeShortcut.h"
 
 using namespace EuroScopePlugIn;
@@ -16,7 +17,8 @@ using namespace EuroScopePlugIn;
 class RadarScreen : public CRadarScreen
 {
 public:
-	RadarScreen(AirportWeatherService* weatherService, std::shared_ptr<FTDiSession> session);
+	RadarScreen(AirportWeatherService* weatherService, SequenceFeedService* sequenceFeed,
+		std::shared_ptr<FTDiSession> session);
 
 	void OnRefresh(HDC hDC, int Phase);
 	void OnButtonDownScreenObject(int ObjectType, const char * sObjectId, POINT Pt, RECT Area, int Button) override;
@@ -29,6 +31,7 @@ private:
 
 	std::shared_ptr<FTDiSession> Session;
 	AirportWeatherService* WeatherService;
+	SequenceFeedService* SequenceFeed;
 	SequenceSelectionStage SelectionStage = SequenceSelectionStage::Idle;
 
 	void StartSequenceInsertion();

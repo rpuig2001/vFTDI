@@ -128,21 +128,12 @@ struct SequenceOptimization {
 	std::vector<Candidate> Candidates;
 };
 
-inline size_t AutomaticInsertionIndex(const std::vector<SequenceArrivalEstimate>& existing,
-	double arrivalSeconds, bool hasGap, bool incomingClearedForIls = false)
+inline bool AppendAutomaticArrival(std::vector<std::string>& order, const std::string& callsign)
 {
-	if (hasGap || incomingClearedForIls || !std::isfinite(arrivalSeconds))
-		return existing.size();
-	size_t firstEligible = 0;
-	for (size_t index = 0; index < existing.size(); ++index) {
-		if (existing[index].Locked)
-			firstEligible = index + 1;
-	}
-	for (size_t index = firstEligible; index < existing.size(); ++index) {
-		if (arrivalSeconds < existing[index].ArrivalSeconds)
-			return index;
-	}
-	return existing.size();
+	if (std::find(order.begin(), order.end(), callsign) != order.end())
+		return false;
+	order.push_back(callsign);
+	return true;
 }
 
 inline bool IsCurrentSequenceProposal(const std::vector<std::string>& current,

@@ -1,4 +1,5 @@
 #include "../src/SequenceOrder.h"
+#include "../src/SequenceFeedData.h"
 #include <cstdlib>
 #include <iostream>
 
@@ -35,17 +36,44 @@ int main()
 		IsAutomaticDistanceEligible(400.0, 0.0) && !IsAutomaticDistanceEligible(-1.0, 100.0) &&
 		!IsAutomaticDistanceEligible(std::numeric_limits<double>::quiet_NaN(), 100.0),
 		"auto distance limit is inclusive, rejects invalid distance, and zero disables it");
-	std::vector<SequenceArrivalEstimate> insertion = {
-		{ "FIRST", 60.0, false }, { "SECOND", 120.0, true }, { "THIRD", 240.0, false } };
-	Check(AutomaticInsertionIndex(insertion, 30.0, false) == 2 &&
-		AutomaticInsertionIndex(insertion, 180.0, false) == 2 &&
-		AutomaticInsertionIndex(insertion, 300.0, false) == 3,
-		"automatic insertion remains after locked arrivals and uses estimated arrival order");
-	Check(AutomaticInsertionIndex(insertion, 30.0, true) == 3 &&
-		AutomaticInsertionIndex(insertion, std::numeric_limits<double>::infinity(), false) == 3,
-		"a GAP or missing estimate appends without changing existing pairs");
-	Check(AutomaticInsertionIndex(insertion, 30.0, false, true) == insertion.size(),
-		"a newly discovered CA aircraft is appended instead of being moved into an existing sequence");
+	std::vector<std::string> automaticOrder = { "FIRST", "SECOND", "THIRD" };
+	const std::vector<std::string> existingOrder = automaticOrder;
+	Check(AppendAutomaticArrival(automaticOrder, "EARLIER ETA") &&
+		automaticOrder == std::vector<std::string>({ "FIRST", "SECOND", "THIRD", "EARLIER ETA" }) &&
+		std::equal(existingOrder.begin(), existingOrder.end(), automaticOrder.begin()),
+		"new auto traffic appends even when its ETA is earlier and preserves the existing prefix");
+	Check(AppendAutomaticArrival(automaticOrder, "NEXT DISCOVERY") &&
+		automaticOrder.back() == "NEXT DISCOVERY" &&
+		!AppendAutomaticArrival(automaticOrder, "SECOND") && automaticOrder.size() == 5,
+		"subsequent discoveries append and an existing aircraft is never duplicated or moved");
+	const std::string sequenceFeedJson = R"({
+		"data":{"icao":"LEPA"},
+		"feeders":[{"callsign":"NOT A FLIGHT","rwy_seq":0}],
+		"sequence":[
+			{"callsign":"LATE","rwy_seq":4,"ades":"LEPA","other":{"ignore":true}},
+			{"callsign":"FIRST","rwy_seq":1,"lost":false},
+			{"callsign":"MIDDLE","rwy_seq":2}
+		],"wind":{"sfc_kts":15}
+	})";
+	std::vector<SequenceFeedData::Entry> feedEntries;
+	Check(SequenceFeedData::Parse(sequenceFeedJson, feedEntries) && feedEntries.size() == 3 &&
+		feedEntries[0].Callsign == "FIRST" && feedEntries[1].Callsign == "MIDDLE" &&
+		feedEntries[2].Callsign == "LATE" && feedEntries[2].RunwaySequence == 4,
+		"URL sequence parser ignores metadata and sorts callsigns by rwy_seq");
+	Check(!SequenceFeedData::Parse("{\"sequence\":[{\"callsign\":\"A\",\"rwy_seq\":1}", feedEntries) &&
+		!SequenceFeedData::Parse("{\"sequence\":[{\"callsign\":\"A\",\"rwy_seq\":1.5}]}", feedEntries) &&
+		SequenceFeedData::Parse("{\"sequence\":[{\"callsign\":\"A\",\"rwy_seq\":1},{\"callsign\":\"A\",\"rwy_seq\":2}]}", feedEntries) &&
+		feedEntries.size() == 1,
+		"URL sequence parser rejects malformed/non-integer data and ignores duplicate callsigns");
+	std::vector<std::string> importedSequence = { "OLD-1", "OLD-2" };
+	Check(SequenceFeedData::ReplaceSequence(importedSequence, feedEntries) &&
+		importedSequence == std::vector<std::string>({ "A" }),
+		"URL snapshot removes absent flights and replaces the queue with its rwy_seq order");
+	feedEntries = { { "B", 1 }, { "A", 2 } };
+	Check(SequenceFeedData::ReplaceSequence(importedSequence, feedEntries) &&
+		importedSequence == std::vector<std::string>({ "B", "A" }) &&
+		!SequenceFeedData::ReplaceSequence(importedSequence, feedEntries),
+		"URL rwy_seq changes reorder the authoritative queue without redundant updates");
 	const std::vector<SequenceArrivalEstimate> caIntoCa = {
 		{ "CA1", 120.0, false, true }, { "CA2", 0.0, false, true } };
 	const std::vector<SequenceArrivalEstimate> caIntoUncleared = {

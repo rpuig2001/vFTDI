@@ -4,10 +4,12 @@
 #include "EuroScopePlugIn.h"
 #include "FTDiSession.h"
 
+class SequenceFeedService;
+
 class FTDiPanelScreen : public EuroScopePlugIn::CRadarScreen
 {
 public:
-	explicit FTDiPanelScreen(std::shared_ptr<FTDiSession> session);
+	FTDiPanelScreen(std::shared_ptr<FTDiSession> session, SequenceFeedService* sequenceFeed);
 
 	void OnRefresh(HDC hDC, int Phase);
 	void OnClickScreenObject(int ObjectType, const char* sObjectId, POINT Pt, RECT Area, int Button) override;
@@ -15,6 +17,7 @@ public:
 
 private:
 	std::shared_ptr<FTDiSession> Session;
+	SequenceFeedService* SequenceFeed;
 };
 
 void DrawFTDiRadarOverlay(

@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "FTDiPanel.h"
+#include "SequenceFeed.h"
 #include "CallsignLookup.h"
 #include "DisplayColors.h"
 #include "Constants.h"
@@ -179,11 +180,17 @@ void DrawProfileControl(CRadarScreen* screen, CDC& dc, const CRect& rect,
 void DrawAutoSequenceControl(CRadarScreen* screen, CDC& dc, const CRect& area, const FTDiSession& session)
 {
 	const CRect autoButton(area.left, area.top, area.left + 59, area.bottom);
-	DrawButton(dc, autoButton, session.AutoSequenceAirport.empty() ? "AUTO OFF" : session.AutoSequenceAirport,
-		ConfiguredColor(session.AutoSequenceAirport.empty() ? "COLOR_PANEL_SURFACE" : "COLOR_PANEL_ACCENT"),
-		ConfiguredColor(session.AutoSequenceAirport.empty() ? "COLOR_PANEL_HEADER_TEXT" : "COLOR_PANEL_TEXT"));
-	const std::string autoTooltip = session.AutoSequenceAirport.empty()
-		? "Enable automatic arrival sequencing" : "Automatic arrival sequencing for " + session.AutoSequenceAirport;
+	const std::string autoLabel = session.SequenceFeedActive ? "URL FEED"
+		: (session.AutoSequenceAirport.empty() ? "AUTO OFF" : session.AutoSequenceAirport);
+	DrawButton(dc, autoButton, autoLabel,
+		ConfiguredColor(session.SequenceFeedActive || !session.AutoSequenceAirport.empty()
+			? "COLOR_PANEL_ACCENT" : "COLOR_PANEL_SURFACE"),
+		ConfiguredColor(session.SequenceFeedActive || !session.AutoSequenceAirport.empty()
+			? "COLOR_PANEL_TEXT" : "COLOR_PANEL_HEADER_TEXT"));
+	const std::string autoTooltip = session.SequenceFeedActive
+		? "Arrival sequence is controlled by the configured URL feed"
+		: (session.AutoSequenceAirport.empty() ? "Enable automatic arrival sequencing"
+			: "Automatic arrival sequencing for " + session.AutoSequenceAirport);
 	screen->AddScreenObject(SCREEN_AUTO_SEQUENCE, "AUTO", autoButton, false, autoTooltip.c_str());
 	std::string moved;
 	std::string before;
@@ -254,18 +261,20 @@ void DrawSequenceRow(CRadarScreen* screen, CDC& dc, const CRect& row,
 
 	const CRect moveButton(row.right - 64, row.top + 2, row.right - 22, row.top + 19);
 	const CRect removeButton(row.right - 20, row.top + 2, row.right - 2, row.top + 19);
-	const bool canMove = session.ArrivalSequence.size() > 1;
+	const bool canMove = !session.SequenceFeedActive && session.ArrivalSequence.size() > 1;
 	const bool isMoveSource = session.PendingSequenceMoveCallsign == callsign;
 	DrawButton(dc, moveButton, isMoveSource ? "PICK" : "MOVE",
 		ConfiguredColor(!canMove ? "COLOR_PANEL_DISABLED" : (isMoveSource ? "COLOR_PANEL_WARNING" : "COLOR_PANEL_SURFACE")),
 		ConfiguredColor(!canMove ? "COLOR_PANEL_MUTED_TEXT" : "COLOR_PANEL_HEADER_TEXT"));
 	DrawButton(dc, removeButton, "x", ConfiguredColor("COLOR_PANEL_REMOVE_BACKGROUND"),
 		ConfiguredColor("COLOR_PANEL_REMOVE_TEXT"));
-	const std::string removeId = "SEQREMOVE|" + callsign;
-	screen->AddScreenObject(SCREEN_SEQUENCE_MOVE, callsign.c_str(), moveButton, false,
-		"Move this aircraft directly to a chosen position in the sequence");
-	screen->AddScreenObject(SCREEN_PANEL_REMOVE, removeId.c_str(), removeButton, false,
-		"Remove aircraft from the sequence");
+	if (!session.SequenceFeedActive) {
+		const std::string removeId = "SEQREMOVE|" + callsign;
+		screen->AddScreenObject(SCREEN_SEQUENCE_MOVE, callsign.c_str(), moveButton, false,
+			"Move this aircraft directly to a chosen position in the sequence");
+		screen->AddScreenObject(SCREEN_PANEL_REMOVE, removeId.c_str(), removeButton, false,
+			"Remove aircraft from the sequence");
+	}
 	const CRect speedButton(row.right - 86, row.top + 21, row.right - 42, row.top + 36);
 	const auto speedOverride = session.FinalApproachSpeedOverridesKts.find(callsign);
 	char speedLabel[12] = {};
@@ -395,6 +404,9 @@ bool HandleFTDiPanelButton(
 {
 	if (objectId == nullptr)
 		return false;
+	if (session.SequenceFeedActive &&
+		(objectType == SCREEN_SEQUENCE_MOVE || objectType == SCREEN_PANEL_REMOVE))
+		return true;
 	std::string rowCallsign;
 	if (objectType == SCREEN_SEQUENCE_SELECT || objectType == SCREEN_SEQUENCE_MOVE ||
 		objectType == SCREEN_PANEL_SPEED || objectType == SCREEN_TURN_STATUS || objectType == SCREEN_PAIR_MODE)
@@ -469,6 +481,8 @@ bool HandleFTDiPanelButton(
 	if (button != BUTTON_LEFT)
 		return false;
 	if (objectType == SCREEN_AUTO_SEQUENCE) {
+		if (session.SequenceFeedActive)
+			return true;
 		if (screen == nullptr)
 			return true;
 		CPlugIn* plugIn = screen->GetPlugIn();
@@ -538,6 +552,8 @@ bool HandleFTDiPanelButton(
 		return true;
 	}
 	if (objectType == SCREEN_PANEL_ADD) {
+		if (session.SequenceFeedActive)
+			return true;
 		SequenceAddRequested.store(true);
 		return true;
 	}
@@ -709,14 +725,16 @@ void DrawFTDiRadarOverlay(
 	const CRect turnButton(routeButton.right + 5, panel.top + 5,
 		panel.right - 7, panel.top + 25);
 	const bool selectingAircraft = SequenceSelectionActive.load();
-	DrawButton(dc, addButton, selectingAircraft ? "PICK ACFT" : "+ ACFT",
-		ConfiguredColor("COLOR_PANEL_ACCENT"), ConfiguredColor("COLOR_PANEL_TEXT"));
+	DrawButton(dc, addButton, session->SequenceFeedActive ? "URL FEED" : (selectingAircraft ? "PICK ACFT" : "+ ACFT"),
+		ConfiguredColor(session->SequenceFeedActive ? "COLOR_PANEL_SURFACE" : "COLOR_PANEL_ACCENT"),
+		ConfiguredColor(session->SequenceFeedActive ? "COLOR_PANEL_MUTED_TEXT" : "COLOR_PANEL_TEXT"));
 	DrawButton(dc, routeButton, session->ProposalsEnabled ? "PROP ON" : "PROP OFF",
 		ConfiguredColor(session->ProposalsEnabled ? "COLOR_PANEL_ACCENT" : "COLOR_PANEL_SURFACE"),
 		ConfiguredColor(session->ProposalsEnabled ? "COLOR_PANEL_TEXT" : "COLOR_PANEL_HEADER_TEXT"));
 	screen->AddScreenObject(SCREEN_PANEL_ADD, "ADD", addButton, false,
-		selectingAircraft ? "Pick one aircraft to append; right-click to cancel"
-			: "Start aircraft selection before clicking an aircraft to append");
+		session->SequenceFeedActive ? "Aircraft additions are controlled by the configured URL feed"
+			: (selectingAircraft ? "Pick one aircraft to append; right-click to cancel"
+				: "Start aircraft selection before clicking an aircraft to append"));
 	screen->AddScreenObject(SCREEN_PANEL_PROPOSALS, "PROPOSALS", routeButton, false, "Enable or disable sequence proposals; automatic aircraft addition is unchanged");
 	DrawTurnToggle(screen, dc, turnButton, session->ShowTurningPoints);
 	const auto profiles = CCallsignLookup::Available && CCallsignLookup::Lookup != nullptr
@@ -752,8 +770,8 @@ void DrawFTDiRadarOverlay(
 		DrawText(dc, panel.left + 10, rowTop + 12, "No arrivals queued", ConfiguredColor("COLOR_PANEL_MUTED_TEXT"), 8);
 }
 
-FTDiPanelScreen::FTDiPanelScreen(std::shared_ptr<FTDiSession> session)
-	: Session(session)
+FTDiPanelScreen::FTDiPanelScreen(std::shared_ptr<FTDiSession> session, SequenceFeedService* sequenceFeed)
+	: Session(session), SequenceFeed(sequenceFeed)
 {
 }
 
@@ -761,6 +779,7 @@ void FTDiPanelScreen::OnRefresh(HDC hDC, int Phase)
 {
 	if (Phase != REFRESH_PHASE_BEFORE_TAGS)
 		return;
+	ApplySequenceFeedSnapshot(*Session, SequenceFeed);
 
 	CDC dc;
 	dc.Attach(hDC);
@@ -786,12 +805,15 @@ void FTDiPanelScreen::OnRefresh(HDC hDC, int Phase)
 		addButton.right + 10 + actionWidth, buttonTop + buttonHeight);
 	const CRect turnButton(routeButton.right + 10, buttonTop,
 		bounds.right - 16, buttonTop + buttonHeight);
-	DrawButton(dc, addButton, "+ ACFT", ConfiguredColor("COLOR_PANEL_ACCENT"), ConfiguredColor("COLOR_PANEL_TEXT"));
+	DrawButton(dc, addButton, Session->SequenceFeedActive ? "URL FEED" : "+ ACFT",
+		ConfiguredColor(Session->SequenceFeedActive ? "COLOR_PANEL_SURFACE" : "COLOR_PANEL_ACCENT"),
+		ConfiguredColor(Session->SequenceFeedActive ? "COLOR_PANEL_MUTED_TEXT" : "COLOR_PANEL_TEXT"));
 	DrawButton(dc, routeButton, Session->ProposalsEnabled ? "PROP ON" : "PROP OFF",
 		ConfiguredColor(Session->ProposalsEnabled ? "COLOR_PANEL_ACCENT" : "COLOR_PANEL_SURFACE"),
 		ConfiguredColor(Session->ProposalsEnabled ? "COLOR_PANEL_TEXT" : "COLOR_PANEL_HEADER_TEXT"));
 	AddScreenObject(SCREEN_PANEL_ADD, "ADD", addButton, false,
-		"Select one aircraft to append it to the arrival sequence");
+		Session->SequenceFeedActive ? "Aircraft additions are controlled by the configured URL feed"
+			: "Select one aircraft to append it to the arrival sequence");
 	AddScreenObject(SCREEN_PANEL_PROPOSALS, "PROPOSALS", routeButton, false, "Enable or disable sequence proposals; automatic aircraft addition is unchanged");
 	DrawTurnToggle(this, dc, turnButton, Session->ShowTurningPoints);
 	const CRect modeControl(bounds.left + 20, buttonTop + buttonHeight + 4,

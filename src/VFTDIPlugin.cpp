@@ -49,8 +49,12 @@ VFTDIPlugin::VFTDIPlugin()
     CCallsignLookup::Lookup = new CCallsignLookup(configPath + "config.ini");
     Session->ActiveProfile = CCallsignLookup::Lookup->getDefaultProfile();
     Session->ManagerVisibleRows = CCallsignLookup::Lookup->getDefaultVisibleRows();
-    Session->ProposalsEnabled = CCallsignLookup::Lookup->getProposalsEnabled();
-        WeatherService.reset(new AirportWeatherService(CCallsignLookup::Lookup->getAirportCodes()));
+    const std::string sequenceUrl = CCallsignLookup::Lookup->getSequenceUrl();
+    Session->SequenceFeedActive = !sequenceUrl.empty();
+    Session->ProposalsEnabled = !Session->SequenceFeedActive && CCallsignLookup::Lookup->getProposalsEnabled();
+    if (Session->SequenceFeedActive)
+        SequenceFeed.reset(new SequenceFeedService(sequenceUrl));
+    WeatherService.reset(new AirportWeatherService(CCallsignLookup::Lookup->getAirportCodes()));
 
     KeyPollingThread = std::thread([this]() {
         bool altWWasDown = false;
@@ -121,9 +125,9 @@ VFTDIPlugin::~VFTDIPlugin()
 CRadarScreen * VFTDIPlugin::OnRadarScreenCreated(const char * sDisplayName, bool NeedRadarContent, bool GeoReferenced, bool CanBeSaved, bool CanBeCreated)
 {
     if (!strcmp(sDisplayName, VFTDI_RADAR_SCREEN_VIEW))
-        return new RadarScreen(WeatherService.get(), Session);
+        return new RadarScreen(WeatherService.get(), SequenceFeed.get(), Session);
     if (!strcmp(sDisplayName, VFTDI_PANEL_SCREEN_VIEW))
-        return new FTDiPanelScreen(Session);
+        return new FTDiPanelScreen(Session, SequenceFeed.get());
 
 	return nullptr;
 }
@@ -309,6 +313,10 @@ void VFTDIPlugin::OnFunctionCall(int FunctionId, const char* sItemString, POINT 
         Session->PendingSequenceMoveTargetCallsign.clear();
         return;
     }
+    if (Session->SequenceFeedActive &&
+        (FunctionId == FUNCTION_SEQUENCE_TAG_START_MOVE || FunctionId == FUNCTION_SEQUENCE_TAG_MOVE_PICK ||
+            FunctionId == FUNCTION_SEQUENCE_MOVE_ABOVE || FunctionId == FUNCTION_SEQUENCE_MOVE_BELOW))
+        return;
     if (FunctionId == FUNCTION_SEQUENCE_TAG_START_MOVE) {
         if (SequenceNumber(Session->ArrivalSequence, PendingTagMoveCallsign) != 0) {
             Session->PendingSequenceMoveCallsign = PendingTagMoveCallsign;

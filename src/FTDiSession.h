@@ -50,6 +50,8 @@ struct FTDiSession {
 	std::map<std::string, double> ModeledGroundSpeedKts;
 	std::map<std::string, bool> ModeledSpeedHasWind;
 	std::string AutoSequenceAirport;
+	bool SequenceFeedActive = false;
+	unsigned long long SequenceFeedRevision = 0;
 	bool AutoDistanceReferenceAvailable = true;
 	bool AutoRunwayReferenceAvailable = true;
 	std::vector<std::string> AutoAddedCallsigns;
@@ -68,6 +70,8 @@ struct FTDiSession {
 	bool ProposalsEnabled = true;
 	void ToggleProposals()
 	{
+		if (SequenceFeedActive)
+			return;
 		ProposalsEnabled = !ProposalsEnabled;
 		AutoProposals.clear();
 		AutoProposalMenuOrders.clear();

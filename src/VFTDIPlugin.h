@@ -4,6 +4,7 @@
 #include <thread>
 #include "EuroScopePlugIn.h"
 #include "AirportWeather.h"
+#include "SequenceFeed.h"
 #include "Constants.h"
 #include "CallsignLookup.h"
 #include "FTDiSession.h"
@@ -33,5 +34,6 @@ private:
 	std::atomic<bool> StopKeyPolling{ false };
 	std::thread KeyPollingThread;
 	std::unique_ptr<AirportWeatherService> WeatherService;
+	std::unique_ptr<SequenceFeedService> SequenceFeed;
 	std::shared_ptr<FTDiSession> Session = std::make_shared<FTDiSession>();
 };

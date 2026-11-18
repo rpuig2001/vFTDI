@@ -684,8 +684,9 @@ void DrawFinalTargetMarker(
 }
 }
 
-RadarScreen::RadarScreen(AirportWeatherService* weatherService, std::shared_ptr<FTDiSession> session)
-	: Session(session), WeatherService(weatherService)
+RadarScreen::RadarScreen(AirportWeatherService* weatherService, SequenceFeedService* sequenceFeed,
+	std::shared_ptr<FTDiSession> session)
+	: Session(session), WeatherService(weatherService), SequenceFeed(sequenceFeed)
 {
 }
 
@@ -729,7 +730,8 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 		? CCallsignLookup::Lookup->getMaximumDisplayDistanceNm() : 0.0;
 	for (auto aircraft = Session->ArrivalSequence.begin(); aircraft != Session->ArrivalSequence.end();) {
 		const CRadarTarget target = GetPlugIn()->RadarTargetSelect(aircraft->c_str());
-		if (!target.IsValid() || target.GetPosition().GetPressureAltitude() < minimumAltitude) {
+		if ((!target.IsValid() || target.GetPosition().GetPressureAltitude() < minimumAltitude) &&
+			!Session->SequenceFeedActive) {
 			const std::string callsign = *aircraft;
 			Session->FinalApproachSpeedOverridesKts.erase(callsign);
 			Session->PlanningMotion.erase(callsign);
@@ -757,7 +759,12 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 		}
 	}
 	GetPlugIn()->SelectScreenSectorfile(this);
-	AddAutomaticArrivals();
+	if (SequenceFeed != nullptr && Session->SequenceFeedActive) {
+		ApplySequenceFeedSnapshot(*Session, SequenceFeed);
+	}
+	else {
+		AddAutomaticArrivals();
+	}
 	SynchronizeSequenceMeasurements();
 	Session->Mode2UnsequencedArrivals.clear();
 	if (mode2) {
@@ -1560,6 +1567,8 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 
 void RadarScreen::StartSequenceInsertion()
 {
+	if (Session->SequenceFeedActive)
+		return;
 	SelectionStage = SequenceSelectionStage::AwaitAircraft;
 	SequenceSelectionActive.store(true);
 	SequencePickArmed.store(false);
@@ -1570,6 +1579,8 @@ void RadarScreen::StartSequenceInsertion()
 
 void RadarScreen::AppendAircraftToSequence(const std::string& callsign)
 {
+	if (Session->SequenceFeedActive)
+		return;
 	if (SelectionStage != SequenceSelectionStage::AwaitAircraft)
 		return;
 	const CRadarTarget target = GetPlugIn()->RadarTargetSelect(callsign.c_str());
@@ -1589,7 +1600,7 @@ void RadarScreen::AppendAircraftToSequence(const std::string& callsign)
 
 void RadarScreen::AddAutomaticArrivals()
 {
-	if (Session->AutoSequenceAirport.empty())
+	if (Session->SequenceFeedActive || Session->AutoSequenceAirport.empty())
 		return;
 	const double maxDistanceNm = CCallsignLookup::Available && CCallsignLookup::Lookup != nullptr
 		? CCallsignLookup::Lookup->getMaximumAutoDistanceNm() : 0.0;
@@ -1647,15 +1658,6 @@ void RadarScreen::AddAutomaticArrivals()
 		else
 			++owned;
 	}
-	const auto estimatedArrival = [this](const std::string& callsign) {
-		const CRadarTarget target = GetPlugIn()->RadarTargetSelect(callsign.c_str());
-		if (!target.IsValid() || target.GetGS() < 80 || target.GetPosition().GetReceivedTime() > 30)
-			return std::numeric_limits<double>::infinity();
-		const CFlightPlan plan = target.GetCorrelatedFlightPlan();
-		if (!plan.IsValid() || !std::isfinite(plan.GetDistanceToDestination()) || plan.GetDistanceToDestination() <= 0.0)
-			return std::numeric_limits<double>::infinity();
-		return plan.GetDistanceToDestination() / target.GetGS();
-	};
 	for (CRadarTarget target = GetPlugIn()->RadarTargetSelectFirst(); target.IsValid();
 		target = GetPlugIn()->RadarTargetSelectNext(target)) {
 		const char* callsignText = target.GetCallsign();
@@ -1677,62 +1679,8 @@ void RadarScreen::AddAutomaticArrivals()
 		const std::string callsign(callsignText);
 		if (std::find(Session->ArrivalSequence.begin(), Session->ArrivalSequence.end(), callsign) != Session->ArrivalSequence.end())
 			continue;
-		const double arrival = estimatedArrival(callsign);
-		std::vector<SequenceArrivalEstimate> existingArrivals;
-		for (size_t index = 0; index < Session->ArrivalSequence.size(); ++index) {
-			const CRadarTarget existing = GetPlugIn()->RadarTargetSelect(Session->ArrivalSequence[index].c_str());
-			const CFlightPlan existingPlan = existing.IsValid() ? existing.GetCorrelatedFlightPlan() : CFlightPlan();
-			bool established = false;
-			if (existing.IsValid() && existingPlan.IsValid()) {
-				const CFlightPlanData existingData = existingPlan.GetFlightPlanData();
-				const char* existingDestination = existingData.GetDestination();
-				const char* existingRunway = existingData.GetArrivalRwy();
-				CPosition marker;
-				CPosition track;
-				CPosition join;
-				CPosition threshold;
-				if (existingDestination != nullptr && existingRunway != nullptr && existingRunway[0] != '\0' &&
-					FindLocalizerMarkerPosition(GetPlugIn(), existingDestination, existingRunway,
-						existing.GetPosition().GetPosition(), existing.GetTrackHeading(), 0.0,
-						marker, track, join, threshold))
-					established = HasPassedRoutePoint(existing.GetPosition().GetPosition(),
-						existing.GetTrackHeading(), join, threshold);
-			}
-			existingArrivals.push_back({ Session->ArrivalSequence[index], estimatedArrival(Session->ArrivalSequence[index]),
-				established });
-		}
-		const bool incomingClearedForIls = plan.GetControllerAssignedData().GetClearedAltitude() == 1;
-		const size_t preferredIndex = AutomaticInsertionIndex(existingArrivals, arrival, false, incomingClearedForIls);
-		std::vector<std::pair<std::string, std::string>> gapPairs;
-		for (const auto& measurement : Session->WakeMeasurements) {
-			if (measurement.GapNm > 0.0)
-				gapPairs.push_back({ measurement.PrecedingCallsign, measurement.SucceedingCallsign });
-		}
-		const auto pairApplies = [this](const std::string& preceding, const std::string& succeeding) {
-			const CRadarTarget leader = GetPlugIn()->RadarTargetSelect(preceding.c_str());
-			const CRadarTarget follower = GetPlugIn()->RadarTargetSelect(succeeding.c_str());
-			if (!leader.IsValid() || !follower.IsValid() || !CCallsignLookup::Available || CCallsignLookup::Lookup == nullptr)
-				return std::numeric_limits<double>::infinity();
-			const CFlightPlan leaderPlan = leader.GetCorrelatedFlightPlan();
-			const CFlightPlan followerPlan = follower.GetCorrelatedFlightPlan();
-			if (!leaderPlan.IsValid() || !followerPlan.IsValid())
-				return std::numeric_limits<double>::infinity();
-			const CFlightPlanData leaderData = leaderPlan.GetFlightPlanData();
-			const CFlightPlanData followerData = followerPlan.GetFlightPlanData();
-			const char* leaderAirport = leaderData.GetDestination();
-			const char* followerAirport = followerData.GetDestination();
-			const char* leaderRunway = leaderData.GetArrivalRwy();
-			const char* followerRunway = followerData.GetArrivalRwy();
-			if (leaderAirport == nullptr || followerAirport == nullptr || leaderRunway == nullptr || followerRunway == nullptr ||
-				leaderRunway[0] == '\0' || followerRunway[0] == '\0')
-				return std::numeric_limits<double>::infinity();
-			return CCallsignLookup::Lookup->getRunwayPairMode(Session->ActiveProfile,
-				leaderAirport, leaderRunway, followerAirport, followerRunway) == CCallsignLookup::RunwayPairMode::Independent
-				? -1.0 : 0.0;
-		};
-		const size_t insertionIndex = GapSafeInsertionIndex(Session->ArrivalSequence, callsign,
-			preferredIndex, gapPairs, pairApplies);
-		Session->ArrivalSequence.insert(Session->ArrivalSequence.begin() + insertionIndex, callsign);
+		if (!AppendAutomaticArrival(Session->ArrivalSequence, callsign))
+			continue;
 		Session->AutoAddedCallsigns.push_back(callsign);
 		Session->SequenceDirty = true;
 	}

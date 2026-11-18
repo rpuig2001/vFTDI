@@ -33,6 +33,7 @@ public:
 	double getMaximumDisplayDistanceNm() const { return maximumDisplayDistanceNm; }
 	int getDefaultVisibleRows() const;
 	std::string getProposalTagText() const;
+	std::string getSequenceUrl() const { return sequenceUrl; }
 	bool getProposalsEnabled() const { return proposalsEnabled; }
 	int getMarkerSizePixels(bool finalTarget) const;
 	double getMinimumDistanceNm() const;
@@ -81,6 +82,7 @@ private:
 	std::vector<std::string> profileNames;
 	std::string defaultProfile;
 	std::string proposalTagText = "P";
+	std::string sequenceUrl;
 	bool proposalsEnabled = true;
 	std::vector<std::string> airportCodes;
 	std::map<std::string, char> recatCategories;

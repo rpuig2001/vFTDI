@@ -37,6 +37,20 @@ int main(int argumentCount, char** arguments)
 	if (!SeparationMath::ShouldDisplayTargets(999.0, 0.0) ||
 		SeparationMath::ShouldDisplayTargets(std::numeric_limits<double>::quiet_NaN(), 25.0))
 		return 1;
+	{
+		std::ofstream config(path);
+		config << "[general]\nsequenceUrl = https://aman.vatsimspain.es/MAESTRO_sequence_data_LEPA.json\n";
+	}
+	CCallsignLookup sequenceUrlConfig(path);
+	if (sequenceUrlConfig.getSequenceUrl() !=
+		"https://aman.vatsimspain.es/MAESTRO_sequence_data_LEPA.json")
+		return 1;
+	{
+		std::ofstream config(path);
+		config << "[general]\nsequenceUrl = \n";
+	}
+	if (!CCallsignLookup(path).getSequenceUrl().empty())
+		return 1;
 	const std::pair<const char*, bool> proposalDefaults[] = {
 		{ "true", true }, { "TRUE", true }, { "ON", true }, { "1", true },
 		{ "false", false }, { "FALSE", false }, { "off", false }, { "0", false },
@@ -237,6 +251,11 @@ int main(int argumentCount, char** arguments)
 		return 1;
 	session.ToggleProposals();
 	if (!session.ProposalsEnabled || !session.AutoProposals.empty() || session.AutoNextEvaluationSeconds != 0.0)
+		return 1;
+	session.SequenceFeedActive = true;
+	session.ProposalsEnabled = false;
+	session.ToggleProposals();
+	if (session.ProposalsEnabled)
 		return 1;
 	std::cout << "All color, mode, spacing/alert, and proposal-toggle checks passed.\n";
 }
