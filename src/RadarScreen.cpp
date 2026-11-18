@@ -765,7 +765,11 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 	else {
 		AddAutomaticArrivals();
 	}
-	SynchronizeSequenceMeasurements();
+	const double predictionNowSeconds = GetTickCount64() / 1000.0;
+	if (Session->SequenceDirty || predictionNowSeconds >= Session->NextSequenceMeasurementSyncSeconds) {
+		SynchronizeSequenceMeasurements();
+		Session->NextSequenceMeasurementSyncSeconds = predictionNowSeconds + 1.0;
+	}
 	Session->Mode2UnsequencedArrivals.clear();
 	if (mode2) {
 		for (CRadarTarget target = GetPlugIn()->RadarTargetSelectFirst(); target.IsValid();
@@ -787,7 +791,6 @@ void RadarScreen::OnRefresh(HDC hDC, int Phase)
 				Session->Mode2UnsequencedArrivals.insert(callsign);
 		}
 	}
-	const double predictionNowSeconds = GetTickCount64() / 1000.0;
 	for (auto motion = Session->PlanningMotion.begin(); motion != Session->PlanningMotion.end();) {
 		if (std::find(Session->ArrivalSequence.begin(), Session->ArrivalSequence.end(), motion->first) == Session->ArrivalSequence.end())
 			motion = Session->PlanningMotion.erase(motion);

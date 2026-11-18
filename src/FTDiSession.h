@@ -65,6 +65,7 @@ struct FTDiSession {
 	std::vector<std::vector<std::string>> AutoRejectedOrders;
 	std::vector<std::string> AutoRejectedBase;
 	double AutoNextEvaluationSeconds = 0.0;
+	double NextSequenceMeasurementSyncSeconds = 0.0;
 	std::vector<std::string> AutoLastEvaluationBase;
 	bool AutoAcceptRequested = false;
 	bool ProposalsEnabled = true;
